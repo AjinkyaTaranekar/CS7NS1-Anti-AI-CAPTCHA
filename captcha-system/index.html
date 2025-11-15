@@ -180,6 +180,59 @@
     <script>
         let currentCaptchaId = null;
 
+        // Generate browser fingerprint
+        function generateFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = '#069';
+            ctx.fillText('Browser Fingerprint', 2, 15);
+            ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+            ctx.fillText('Browser Fingerprint', 4, 17);
+            
+            const canvasData = canvas.toDataURL();
+            
+            const fingerprint = {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                screenResolution: `${screen.width}x${screen.height}`,
+                screenColorDepth: screen.colorDepth,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                timezoneOffset: new Date().getTimezoneOffset(),
+                hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+                deviceMemory: navigator.deviceMemory || 'unknown',
+                canvasFingerprint: canvasData.substring(0, 100),
+                plugins: Array.from(navigator.plugins || []).map(p => p.name).join(','),
+                cookieEnabled: navigator.cookieEnabled,
+                doNotTrack: navigator.doNotTrack || 'unknown',
+                touchSupport: 'ontouchstart' in window,
+                webGL: (() => {
+                    try {
+                        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                        return gl ? gl.getParameter(gl.VERSION) : 'not supported';
+                    } catch(e) {
+                        return 'not supported';
+                    }
+                })()
+            };
+            
+            // Create a hash-like string from the fingerprint
+            const fingerprintString = JSON.stringify(fingerprint);
+            let hash = 0;
+            for (let i = 0; i < fingerprintString.length; i++) {
+                const char = fingerprintString.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            
+            return Math.abs(hash).toString(36) + Date.now().toString(36) + Math.random().toString(36).substring(2, 15);
+        }
+
         // Load CAPTCHA on page load
         async function loadCaptcha() {
             const container = document.getElementById('captchaContainer');
@@ -309,6 +362,7 @@
                 full_name: document.getElementById('fullName').value,
                 captcha_id: currentCaptchaId,
                 captcha_answer: document.getElementById('captchaAnswer').value,
+                fingerprint: generateFingerprint(),
                 website: website,
                 company: company,
                 phone_verify: phoneVerify

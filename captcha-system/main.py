@@ -10,18 +10,27 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from generate import create_camouflage_text
 from pydantic import BaseModel, EmailStr, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Secure Bank Signup API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
+fingerprint_cache: Dict[str, datetime] = {}  # Track fingerprints to detect reuse
 
 CAPTCHA_EXPIRY_MINUTES = 5
+FINGERPRINT_EXPIRY_HOURS = 24
 OUTPUT_DIR = "captcha_images"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -48,6 +57,7 @@ class SignupRequest(BaseModel):
     full_name: str = Field(..., min_length=2)
     captcha_id: str
     captcha_answer: str
+    fingerprint: str = Field(..., description="Browser fingerprint for bot detection")
     # Honeypot fields - should remain empty for legitimate users
     website: Optional[str] = None
     company: Optional[str] = None
@@ -75,6 +85,38 @@ def cleanup_expired_captchas():
         del captcha_storage[cid]
 
 
+def cleanup_expired_fingerprints():
+    """Remove expired fingerprints from cache."""
+    now = datetime.now()
+    expired_fps = [
+        fp for fp, timestamp in fingerprint_cache.items()
+        if now - timestamp > timedelta(hours=FINGERPRINT_EXPIRY_HOURS)
+    ]
+    for fp in expired_fps:
+        del fingerprint_cache[fp]
+
+
+def validate_fingerprint(fingerprint: str) -> bool:
+    """Validate that fingerprint appears to be from a real browser.
+    
+    Args:
+        fingerprint: Browser fingerprint string
+        
+    Returns:
+        True if fingerprint passes basic validation, False otherwise
+    """
+    if not fingerprint or len(fingerprint) < 32:
+        return False
+    
+    # Check if fingerprint has been seen too recently (potential bot reusing fingerprints)
+    if fingerprint in fingerprint_cache:
+        time_since_last_use = datetime.now() - fingerprint_cache[fingerprint]
+        if time_since_last_use < timedelta(minutes=1):
+            return False
+    
+    return True
+
+
 def get_random_image(directory: str) -> str:
     """Get a random image file from the specified directory."""
     images = [
@@ -97,8 +139,11 @@ async def root():
 
 
 @app.post("/api/captcha/challenge", response_model=CaptchaResponse)
-async def generate_captcha_challenge():
+@limiter.limit("10/minute")
+async def generate_captcha_challenge(request: Request):
     """Generate a new CAPTCHA challenge.
+    
+    Rate limited to 10 requests per minute per IP address.
 
     Returns:
         CaptchaResponse with unique ID and image URL.
@@ -162,11 +207,15 @@ async def get_captcha_image(filename: str):
 
 
 @app.post("/api/signup", response_model=SignupResponse)
-async def signup(request: SignupRequest):
+@limiter.limit("5/minute")
+async def signup(signup_request: SignupRequest, request: Request):
     """Create a new user account after validating CAPTCHA.
+    
+    Rate limited to 5 requests per minute per IP address.
 
     Args:
-        request: SignupRequest containing user details and CAPTCHA solution.
+        signup_request: SignupRequest containing user details and CAPTCHA solution.
+        request: FastAPI Request object for rate limiting.
 
     Returns:
         SignupResponse with user details.
@@ -175,12 +224,20 @@ async def signup(request: SignupRequest):
         HTTPException: If CAPTCHA is invalid, expired, or email already exists.
     """
     cleanup_expired_captchas()
+    cleanup_expired_fingerprints()
+
+    # Validate browser fingerprint
+    if not validate_fingerprint(signup_request.fingerprint):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid browser fingerprint. Bot activity suspected."
+        )
 
     # Honeypot detection: if any filled, likely bot/AI
     if (
-        (request.website and request.website.strip())
-        or (request.company and request.company.strip())
-        or (request.phone_verify and request.phone_verify.strip())
+        (signup_request.website and signup_request.website.strip())
+        or (signup_request.company and signup_request.company.strip())
+        or (signup_request.phone_verify and signup_request.phone_verify.strip())
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -188,7 +245,7 @@ async def signup(request: SignupRequest):
         )
 
     # Password complexity enforcement (server-side)
-    pw = request.password
+    pw = signup_request.password
     has_upper = any(c.isupper() for c in pw)
     has_lower = any(c.islower() for c in pw)
     has_digit = any(c.isdigit() for c in pw)
@@ -202,16 +259,16 @@ async def signup(request: SignupRequest):
             ),
         )
 
-    if request.captcha_id not in captcha_storage:
+    if signup_request.captcha_id not in captcha_storage:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired CAPTCHA ID",
         )
 
-    captcha_data = captcha_storage[request.captcha_id]
+    captcha_data = captcha_storage[signup_request.captcha_id]
 
     if captcha_data["expires_at"] < datetime.now():
-        del captcha_storage[request.captcha_id]
+        del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="CAPTCHA has expired. Please request a new one.",
@@ -223,38 +280,41 @@ async def signup(request: SignupRequest):
         image_path = captcha_data.get("image_path")
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
-        del captcha_storage[request.captcha_id]
+        del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Too many failed attempts. Please request a new CAPTCHA.",
         )
 
-    if request.captcha_answer.upper() != captcha_data["text"]:
+    if signup_request.captcha_answer.upper() != captcha_data["text"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect CAPTCHA answer"
         )
 
-    if request.email in user_database:
+    if signup_request.email in user_database:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
 
     user_id = str(uuid.uuid4())
-    user_database[request.email] = {
+    user_database[signup_request.email] = {
         "user_id": user_id,
-        "email": request.email,
-        "full_name": request.full_name,
-        "password": request.password,
+        "email": signup_request.email,
+        "full_name": signup_request.full_name,
+        "password": signup_request.password,
         "created_at": datetime.now().isoformat(),
     }
+
+    # Store fingerprint with timestamp
+    fingerprint_cache[signup_request.fingerprint] = datetime.now()
 
     image_path = captcha_data.get("image_path")
     if image_path and os.path.exists(image_path):
         os.remove(image_path)
-    del captcha_storage[request.captcha_id]
+    del captcha_storage[signup_request.captcha_id]
 
     return SignupResponse(
-        message="Account created successfully", user_id=user_id, email=request.email
+        message="Account created successfully", user_id=user_id, email=signup_request.email
     )
 
 
