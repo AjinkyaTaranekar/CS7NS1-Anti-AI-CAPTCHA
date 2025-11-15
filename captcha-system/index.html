@@ -330,6 +330,21 @@
             return ok;
         }
 
+        // TODO: Remove this dummy values setup in production
+        const fields = {
+            fullName: 'John Doe',
+            email: 'john.doe@example.com',
+            password: 'StrongP@ssw0rd!',
+            confirmPassword: 'StrongP@ssw0rd!'
+        }
+
+        Object.keys(fields).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = fields[id];
+            }
+        });
+
         document.getElementById('password').addEventListener('input', validatePasswords);
         document.getElementById('confirmPassword').addEventListener('input', validatePasswords);
 
@@ -337,12 +352,27 @@
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // Client-side honeypot checks
+            // Email format check
+            const email = document.getElementById('email').value;
+            const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRe.test(email)) {
+                showError('Please enter a valid email address.');
+                return;
+            }
+
+            // Name check
+            const fullName = document.getElementById('fullName').value;
+            if (!fullName || fullName.trim().length < 2) {
+                showError('Please enter your full name (at least 2 characters).');
+                return;
+            }
+
+            // Additional Info Fields checks
             const website = document.getElementById('website').value;
             const company = document.getElementById('company').value;
             const phoneVerify = document.getElementById('phone_verify').value;
             if ((website && website.trim()) || (company && company.trim()) || (phoneVerify && phoneVerify.trim())) {
-                showError('Suspicious activity detected. Please try again.');
+                showError('Please try again.');
                 return;
             }
 
@@ -357,9 +387,9 @@
             submitBtn.textContent = 'Creating Account...';
 
             const formData = {
-                email: document.getElementById('email').value,
+                email: email,
                 password: document.getElementById('password').value,
-                full_name: document.getElementById('fullName').value,
+                full_name: fullName,
                 captcha_id: currentCaptchaId,
                 captcha_answer: document.getElementById('captchaAnswer').value,
                 fingerprint: generateFingerprint(),
