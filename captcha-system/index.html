@@ -138,7 +138,7 @@
                             id="captchaAnswer" 
                             name="captchaAnswer" 
                             required 
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition uppercase"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
                             placeholder="Enter CAPTCHA text"
                             autocomplete="off"
                         >
@@ -370,8 +370,7 @@
             // Additional Info Fields checks
             const website = document.getElementById('website').value;
             const company = document.getElementById('company').value;
-            const phoneVerify = document.getElementById('phone_verify').value;
-            if ((website && website.trim()) || (company && company.trim()) || (phoneVerify && phoneVerify.trim())) {
+            if ((website && website.trim()) || (company && company.trim())) {
                 showError('Please try again.');
                 return;
             }
@@ -394,8 +393,7 @@
                 captcha_answer: document.getElementById('captchaAnswer').value,
                 fingerprint: generateFingerprint(),
                 website: website,
-                company: company,
-                phone_verify: phoneVerify
+                company: company
             };
 
             try {

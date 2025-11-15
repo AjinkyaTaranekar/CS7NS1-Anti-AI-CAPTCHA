@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from generate import create_camouflage_text
+from generate import generate_camouflage_captcha
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -105,13 +105,15 @@ def validate_fingerprint(fingerprint: str) -> bool:
     Returns:
         True if fingerprint passes basic validation, False otherwise
     """
-    if not fingerprint or len(fingerprint) < 32:
+    print(f"Validating fingerprint: {fingerprint}")
+    if not fingerprint or len(fingerprint) < 24:
         return False
     
     # Check if fingerprint has been seen too recently (potential bot reusing fingerprints)
     if fingerprint in fingerprint_cache:
         time_since_last_use = datetime.now() - fingerprint_cache[fingerprint]
-        if time_since_last_use < timedelta(minutes=1):
+        print(f"Fingerprint last used {time_since_last_use.total_seconds()} seconds ago")
+        if time_since_last_use < timedelta(seconds=10):
             return False
     
     return True
@@ -151,28 +153,28 @@ async def generate_captcha_challenge(request: Request):
     cleanup_expired_captchas()
 
     captcha_id = str(uuid.uuid4())
-    text_length = random.randint(4, 6)
-    captcha_text = "".join(random.choice(SYMBOLS) for _ in range(text_length))
-
     image_filename = f"{captcha_id}.png"
     image_path = os.path.join(OUTPUT_DIR, image_filename)
 
     try:
-        bg_image = get_random_image(BG_DIR)
-        ov_image = get_random_image(OV_DIR)
-
-        create_camouflage_text(
-            bg_path=bg_image,
-            overlay_path=ov_image,
-            text=captcha_text,
+        img, captcha_text = generate_camouflage_captcha(
             width=420,
             height=220,
-            blur_radius=0.8,
-            bold_amount=5,
+            bg_dir=BG_DIR,
+            ov_dir=OV_DIR,
+            symbols_file="symbols.txt",
+            fonts_dir="fonts",
+            font_size=120,
+            min_length=4,
+            max_length=6,
+            blur=0.8,
+            bold=5,
             colorblind=False,
             difficulty=0.2,
-            output_path=image_path,
         )
+        if img is None:
+            raise RuntimeError("Image generation returned None")
+        img.save(image_path)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

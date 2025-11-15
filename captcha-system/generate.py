@@ -6,12 +6,12 @@ using edge blur, character dilation, and strategic color pairing based on color 
 """
 
 import argparse
+import colorsys
 import os
 import random
 import sys
 from pathlib import Path
-from typing import Union, Tuple, Optional
-import colorsys
+from typing import Optional, Tuple, Union
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
@@ -97,7 +97,6 @@ def create_camouflage_text(
     bold_amount: Optional[int] = None,
     colorblind: bool = False,
     difficulty: float = 0.5,
-    output_path: str = "output.png",
 ) -> Image.Image:
     """Generate a camouflage CAPTCHA with text blended into a textured background.
     
@@ -198,11 +197,109 @@ def create_camouflage_text(
         noise_img = Image.fromarray(noise).convert("RGB")
         out = Image.blend(out, noise_img, alpha=min(difficulty, 0.3))
 
-    out.save(output_path)
     return out
 
 
-def generate_camouflage_captchas() -> None:
+def generate_camouflage_captcha(
+    width: int,
+    height: int,
+    bg_dir: str,
+    ov_dir: str,
+    symbols_file: str,
+    fonts_dir: str,
+    font_size: int,
+    min_length: int,
+    max_length: int,
+    blur: float,
+    bold: int,
+    colorblind: bool,
+    difficulty: float,
+) -> Tuple[Optional[Image.Image], str]:
+    """Generate a single camouflage CAPTCHA and return the image and text."""
+    
+    if not os.path.exists(symbols_file):
+        print(f"Warning: '{symbols_file}' missing → using default alphanum")
+        sym = "abcdefghijklmnopqrstuvwxyz0123456789"
+    else:
+        with open(symbols_file) as f:
+            sym = f.read().strip().lower()
+        if not sym:
+            sym = "abcdefghijklmnopqrstuvwxyz0123456789"
+    font_path = None
+    if fonts_dir and os.path.isdir(fonts_dir):
+        font_files = [
+            os.path.join(fonts_dir, f)
+            for f in os.listdir(fonts_dir)
+            if f.lower().endswith((".ttf", ".otf"))
+        ]
+        if font_files:
+            font_path = random.choice(font_files)
+
+    if not os.path.isdir(bg_dir):
+        print(f"Error: background directory '{bg_dir}' missing")
+        sys.exit(1)
+
+    bg_paths = [
+        os.path.join(bg_dir, f)
+        for f in os.listdir(bg_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".avif"))
+    ]
+    bg_paths = [p for p in bg_paths if os.path.isfile(p)]
+    if len(bg_paths) < 1:
+        print("Error: no usable background images")
+        sys.exit(1)
+
+    bg_colors = {p: get_dominant_color(p) for p in bg_paths}
+
+    if not os.path.isdir(ov_dir):
+        print(f"Error: overlay directory '{ov_dir}' missing")
+        sys.exit(1)
+
+    ov_paths = [
+        os.path.join(ov_dir, f)
+        for f in os.listdir(ov_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".avif"))
+    ]
+    ov_paths = [p for p in ov_paths if os.path.isfile(p)]
+    if len(ov_paths) < 1:
+        print("Error: no usable overlay images")
+        sys.exit(1)
+
+    ov_colors = {p: get_dominant_color(p) for p in ov_paths}
+
+    length = random.randint(min_length, max_length)
+    text = "".join(random.choice(sym) for _ in range(length))
+
+    bg = random.choice(bg_paths)
+    bg_hue = bg_colors[bg][0]
+
+    candidates = [ov for ov in ov_paths if colors_match(bg_hue, ov_colors[ov][0], "analogous")]
+    if not candidates:
+        candidates = [ov for ov in ov_paths if colors_match(bg_hue, ov_colors[ov][0], "complementary")]
+    if not candidates:
+        candidates = ov_paths
+
+    ov = random.choice(candidates)
+    captcha = None
+    try:
+        captcha = create_camouflage_text(
+            bg_path=bg,
+            overlay_path=ov,
+            text=text,
+            width=width,
+            height=height,
+            font_path=font_path,
+            font_size=font_size,
+            blur_radius=blur,
+            bold_amount=bold,
+            colorblind=colorblind,
+            difficulty=difficulty,
+        )
+    except Exception as e:
+        print(f"\nFailed {text}: {e}")
+    return captcha, text
+
+def generate_captchas():
     """Command-line interface for batch CAPTCHA generation."""
     parser = argparse.ArgumentParser(
         description="Camouflage CAPTCHA generator – blur + bold + color-blind"
@@ -216,7 +313,10 @@ def generate_camouflage_captchas() -> None:
     parser.add_argument("--symbols", type=str, default="symbols.txt")
     parser.add_argument("--min-length", type=int, default=4)
     parser.add_argument("--max-length", type=int, default=6)
-    parser.add_argument("--font-path", type=str, default=None)
+    parser.add_argument("--fonts-dir", type=str, default="fonts",
+                        help="Directory containing font files (.ttf/.otf)")
+    parser.add_argument("--font-size", type=int, default=120,
+                        help="Font size in pixels")
     parser.add_argument("--blur", type=float, default=0.8,
                         help="Gaussian blur radius on character edges (0 = none)")
     parser.add_argument("--bold", type=int, default=5,
@@ -227,89 +327,32 @@ def generate_camouflage_captchas() -> None:
                         help="0.0 = easy, 1.0 = very hard (adds noise)")
 
     args = parser.parse_args()
-
-    if not os.path.exists(args.symbols):
-        print(f"Warning: '{args.symbols}' missing → using default alphanum")
-        sym = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    else:
-        with open(args.symbols) as f:
-            sym = "".join(set(f.read().strip().lower() + f.read().strip().upper()))
-        if not sym:
-            sym = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
     os.makedirs(args.output_dir, exist_ok=True)
 
-    if not os.path.isdir(args.bg_dir):
-        print(f"Error: background directory '{args.bg_dir}' missing")
-        sys.exit(1)
-
-    bg_paths = [
-        os.path.join(args.bg_dir, f)
-        for f in os.listdir(args.bg_dir)
-        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".avif"))
-    ]
-    bg_paths = [p for p in bg_paths if os.path.isfile(p)]
-    if len(bg_paths) < 1:
-        print("Error: no usable background images")
-        sys.exit(1)
-
-    bg_colors = {p: get_dominant_color(p) for p in bg_paths}
-
-    if not os.path.isdir(args.ov_dir):
-        print(f"Error: overlay directory '{args.ov_dir}' missing")
-        sys.exit(1)
-
-    ov_paths = [
-        os.path.join(args.ov_dir, f)
-        for f in os.listdir(args.ov_dir)
-        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".avif"))
-    ]
-    ov_paths = [p for p in ov_paths if os.path.isfile(p)]
-    if len(ov_paths) < 1:
-        print("Error: no usable overlay images")
-        sys.exit(1)
-
-    ov_colors = {p: get_dominant_color(p) for p in ov_paths}
-
     for i in tqdm(range(args.count), desc="CAPTCHA"):
-        length = random.randint(args.min_length, args.max_length)
-        text = "".join(random.choice(sym) for _ in range(length))
+        out_file = os.path.join(args.output_dir, f"captcha_{i+1}.png")
+        img, text = generate_camouflage_captcha(
+            width=args.width,
+            height=args.height,
+            bg_dir=args.bg_dir,
+            ov_dir=args.ov_dir,
+            symbols_file=args.symbols,
+            fonts_dir=args.fonts_dir,
+            font_size=args.font_size,
+            min_length=args.min_length,
+            max_length=args.max_length,
+            blur=args.blur,
+            bold=args.bold,
+            colorblind=args.colorblind,
+            difficulty=args.difficulty,
+        )
+        if img is None:
+            print(f"Failed to generate CAPTCHA {i+1}")
+        else:
+            img.save(out_file)
+            print(f"Generated {text.upper()} → {out_file}")
 
-        bg = random.choice(bg_paths)
-        bg_hue = bg_colors[bg][0]
-
-        candidates = [ov for ov in ov_paths if colors_match(bg_hue, ov_colors[ov][0], "analogous")]
-        if not candidates:
-            candidates = [ov for ov in ov_paths if colors_match(bg_hue, ov_colors[ov][0], "complementary")]
-        if not candidates:
-            candidates = ov_paths
-
-        ov = random.choice(candidates)
-
-        out_file = os.path.join(args.output_dir, f"{text}.png")
-        if os.path.exists(out_file):
-            base, ext = os.path.splitext(out_file)
-            out_file = f"{base}_{i}{ext}"
-
-        try:
-            create_camouflage_text(
-                bg_path=bg,
-                overlay_path=ov,
-                text=text,
-                width=args.width,
-                height=args.height,
-                font_path=args.font_path,
-                blur_radius=args.blur,
-                bold_amount=args.bold,
-                colorblind=args.colorblind,
-                difficulty=args.difficulty,
-                output_path=out_file,
-            )
-        except Exception as e:
-            print(f"\nFailed {text}: {e}")
-
-    print(f"\nDone → {args.output_dir}")
-
+    print(f"\nDone → {args.output_dir} ({args.count} files)")
 
 if __name__ == "__main__":
-    generate_camouflage_captchas()
+    generate_captchas()
