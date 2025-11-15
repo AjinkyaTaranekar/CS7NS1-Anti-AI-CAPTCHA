@@ -13,9 +13,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr, Field
-
 from generate import create_camouflage_text
+from pydantic import BaseModel, EmailStr, Field
 
 app = FastAPI(title="Secure Bank Signup API", version="1.0.0")
 
@@ -49,6 +48,10 @@ class SignupRequest(BaseModel):
     full_name: str = Field(..., min_length=2)
     captcha_id: str
     captcha_answer: str
+    # Honeypot fields - should remain empty for legitimate users
+    website: Optional[str] = None
+    company: Optional[str] = None
+    phone_verify: Optional[str] = None
 
 
 class SignupResponse(BaseModel):
@@ -172,6 +175,32 @@ async def signup(request: SignupRequest):
         HTTPException: If CAPTCHA is invalid, expired, or email already exists.
     """
     cleanup_expired_captchas()
+
+    # Honeypot detection: if any filled, likely bot/AI
+    if (
+        (request.website and request.website.strip())
+        or (request.company and request.company.strip())
+        or (request.phone_verify and request.phone_verify.strip())
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Suspicious activity detected."
+        )
+
+    # Password complexity enforcement (server-side)
+    pw = request.password
+    has_upper = any(c.isupper() for c in pw)
+    has_lower = any(c.islower() for c in pw)
+    has_digit = any(c.isdigit() for c in pw)
+    has_symbol = any(not c.isalnum() and not c.isspace() for c in pw)
+    if not (len(pw) >= 8 and has_upper and has_lower and has_digit and has_symbol):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Password must be 8+ characters and include uppercase, lowercase, "
+                "a number, and a symbol."
+            ),
+        )
 
     if request.captcha_id not in captcha_storage:
         raise HTTPException(

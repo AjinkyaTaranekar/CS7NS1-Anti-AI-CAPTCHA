@@ -9,10 +9,18 @@
         .gradient-bg {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
+        .hp-field {
+            position: absolute;
+            left: -10000px;
+            top: auto;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body class="gradient-bg min-h-screen py-12 px-4">
-    <div class="max-w-md mx-auto">
+    <div class="max-w-screen-xl w-full mx-auto">
         <!-- Header -->
         <div class="text-center mb-8">
             <div class="inline-block bg-white p-4 rounded-full shadow-lg mb-4">
@@ -27,46 +35,78 @@
         <!-- Signup Form Card -->
         <div class="bg-white rounded-2xl shadow-2xl p-8">
             <form id="signupForm" class="space-y-6">
-                <!-- Full Name -->
-                <div>
-                    <label for="fullName" class="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                    <input 
-                        type="text" 
-                        id="fullName" 
-                        name="fullName" 
-                        required 
-                        minlength="2"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                        placeholder="John Doe"
-                    >
+                <!-- User Details (Side-by-side on desktop) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Full Name -->
+                    <div>
+                        <label for="fullName" class="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                        <input 
+                            type="text" 
+                            id="fullName" 
+                            name="fullName" 
+                            required 
+                            minlength="2"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                            placeholder="John Doe"
+                        >
+                    </div>
+
+                    <!-- Email -->
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            required 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                            placeholder="you@example.com"
+                        >
+                    </div>
                 </div>
 
-                <!-- Email -->
-                <div>
-                    <label for="email" class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                    <input 
-                        type="email" 
-                        id="email" 
-                        name="email" 
-                        required 
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                        placeholder="you@example.com"
-                    >
+                <!-- Passwords (Side-by-side on desktop) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Password -->
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            required 
+                            minlength="8"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                            placeholder="Minimum 8 characters, mixed case, number, symbol"
+                            autocomplete="new-password"
+                        >
+                        <p id="passwordHint" class="mt-1 text-xs text-gray-500">Must be 8+ chars, include uppercase, lowercase, number, and symbol.</p>
+                    </div>
+
+                    <!-- Confirm Password -->
+                    <div>
+                        <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+                        <input 
+                            type="password" 
+                            id="confirmPassword" 
+                            name="confirmPassword" 
+                            required 
+                            minlength="8"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                            placeholder="Re-enter your password"
+                            autocomplete="new-password"
+                        >
+                        <p id="confirmHint" class="mt-1 text-xs text-gray-500">Re-enter the same password to confirm.</p>
+                    </div>
                 </div>
 
-                <!-- Password -->
-                <div>
-                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                    <input 
-                        type="password" 
-                        id="password" 
-                        name="password" 
-                        required 
-                        minlength="8"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                        placeholder="Minimum 8 characters"
-                    >
-                    <p class="mt-1 text-xs text-gray-500">Must be at least 8 characters long</p>
+                <div class="hp-field" aria-hidden="true">
+                    <label for="website">Website URL</label>
+                    <input type="url" id="website" name="website" autocomplete="off" tabindex="-1" placeholder="https://example.com">
+                </div>
+                <div class="hp-field" aria-hidden="true">
+                    <label for="company">Company Name</label>
+                    <input type="text" id="company" name="company" autocomplete="off" tabindex="-1" placeholder="Your company">
                 </div>
 
                 <!-- CAPTCHA Section -->
@@ -201,10 +241,64 @@
             successDiv.classList.remove('hidden');
         }
 
+        // Password validation
+        function isStrongPassword(pw) {
+            // At least 8 chars, one uppercase, one lowercase, one digit, one special
+            const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,}$/;
+            return re.test(pw);
+        }
+
+        function validatePasswords() {
+            const pw = document.getElementById('password').value;
+            const cpw = document.getElementById('confirmPassword').value;
+            const hint = document.getElementById('passwordHint');
+            const chint = document.getElementById('confirmHint');
+
+            let ok = true;
+            if (!isStrongPassword(pw)) {
+                hint.classList.remove('text-gray-500');
+                hint.classList.add('text-red-600');
+                ok = false;
+            } else {
+                hint.classList.remove('text-red-600');
+                hint.classList.add('text-gray-500');
+            }
+
+            if (cpw && pw !== cpw) {
+                chint.textContent = 'Passwords do not match. Please re-enter.';
+                chint.classList.remove('text-gray-500');
+                chint.classList.add('text-red-600');
+                ok = false;
+            } else {
+                chint.textContent = 'Re-enter the same password to confirm.';
+                chint.classList.remove('text-red-600');
+                chint.classList.add('text-gray-500');
+            }
+            return ok;
+        }
+
+        document.getElementById('password').addEventListener('input', validatePasswords);
+        document.getElementById('confirmPassword').addEventListener('input', validatePasswords);
+
         // Handle form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Client-side honeypot checks
+            const website = document.getElementById('website').value;
+            const company = document.getElementById('company').value;
+            const phoneVerify = document.getElementById('phone_verify').value;
+            if ((website && website.trim()) || (company && company.trim()) || (phoneVerify && phoneVerify.trim())) {
+                showError('Suspicious activity detected. Please try again.');
+                return;
+            }
+
+            // Client-side password checks
+            if (!validatePasswords()) {
+                showError('Please use a strong password and ensure both entries match.');
+                return;
+            }
+
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Creating Account...';
@@ -214,7 +308,10 @@
                 password: document.getElementById('password').value,
                 full_name: document.getElementById('fullName').value,
                 captcha_id: currentCaptchaId,
-                captcha_answer: document.getElementById('captchaAnswer').value
+                captcha_answer: document.getElementById('captchaAnswer').value,
+                website: website,
+                company: company,
+                phone_verify: phoneVerify
             };
 
             try {
