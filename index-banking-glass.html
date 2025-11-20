@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Scalable Bank – Secure Access</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .bg-glass-light {
+      background:
+        radial-gradient(circle at top left, #a5b4fc 0, transparent 45%),
+        radial-gradient(circle at bottom right, #22d3ee 0, transparent 40%),
+        #020617;
+      background-attachment: fixed;
+      transition: background 0.45s ease;
+    }
+
+    body.light .bg-glass-light {
+      background:
+        radial-gradient(circle at top left, #bfdbfe 0, transparent 45%),
+        radial-gradient(circle at bottom right, #a5b4fc 0, transparent 40%),
+        #0f172a;
+    }
+
+    .glass-card {
+      backdrop-filter: blur(24px);
+      background: rgba(15, 23, 42, 0.78);
+      border-radius: 26px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      box-shadow:
+        0 18px 30px rgba(15, 23, 42, 0.8),
+        0 0 0 1px rgba(15, 23, 42, 0.8);
+    }
+
+    body.light .glass-card {
+      background: rgba(248, 250, 252, 0.94);
+      border-color: rgba(148, 163, 184, 0.5);
+      box-shadow:
+        0 18px 40px rgba(15, 23, 42, 0.25),
+        0 0 0 1px rgba(255, 255, 255, 0.5);
+    }
+
+    .glass-input {
+      @apply w-full px-4 py-3 rounded-2xl border text-sm;
+      background: rgba(15, 23, 42, 0.75);
+      border-color: rgba(148, 163, 184, 0.7);
+      color: #e5e7eb;
+    }
+
+    body.light .glass-input {
+      background: rgba(248, 250, 252, 0.85);
+      color: #020617;
+      border-color: #cbd5f5;
+    }
+
+    .accent-ring {
+      box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.4), 0 0 25px rgba(56, 189, 248, 0.4);
+    }
+
+    /* CAPTCHA shake */
+    .captcha-shake {
+      animation: captcha-shake 0.45s ease-in-out;
+    }
+    @keyframes captcha-shake {
+      0% { transform: translateX(0); }
+      20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(3px); }
+      100% { transform: translateX(0); }
+    }
+  </style>
+</head>
+<body class="bg-glass-light text-slate-100 light">
+
+  <!-- Top bar -->
+  <header class="max-w-6xl mx-auto px-4 pt-5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-400 via-sky-400 to-emerald-400 flex items-center justify-center accent-ring">
+        <span class="text-sm font-bold tracking-tight">SG</span>
+      </div>
+      <div class="leading-tight">
+        <p class="text-sm font-semibold">Scalable Bank</p>
+        <p class="text-[11px] text-slate-300/80">Quantum-grade digital security</p>
+      </div>
+    </div>
+
+    <button id="glassDarkToggle"
+            class="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-indigo-300/60 bg-slate-900/40 hover:bg-slate-900/70 transition">
+      <span id="glassDarkIcon">🌙</span>
+      <span id="glassDarkLabel" class="hidden sm:inline">Dark mode</span>
+    </button>
+  </header>
+
+  <!-- Main -->
+  <main class="max-w-6xl mx-auto px-4 py-10 md:py-14">
+    <div class="flex flex-col md:flex-row items-center gap-8 md:gap-12">
+
+      <!-- Left text / hero -->
+      <section class="flex-1 space-y-5">
+        <p class="inline-flex items-center gap-2 text-[11px] tracking-[0.28em] uppercase text-slate-300/80">
+          <span class="w-6 h-[1px] bg-slate-300/60"></span> Secure onboarding
+        </p>
+        <h1 class="text-3xl md:text-4xl font-semibold leading-tight">
+          Human-first verification for <span class="text-sky-300">next-generation banking</span>.
+        </h1>
+        <p class="text-sm text-slate-300/90 max-w-md">
+          We combine behavioral signals, secure captchas, and encryption to distinguish humans from
+          automated systems without sacrificing your experience.
+        </p>
+        <div class="flex flex-wrap gap-3 text-[11px] text-slate-200/90">
+          <span class="px-3 py-1 rounded-full bg-slate-900/50 border border-sky-400/40">Behavioral biometrics</span>
+          <span class="px-3 py-1 rounded-full bg-slate-900/50 border border-indigo-400/40">Anti-bot CAPTCHA</span>
+          <span class="px-3 py-1 rounded-full bg-slate-900/50 border border-emerald-400/40">Zero-impact UX</span>
+        </div>
+      </section>
+
+      <!-- Right form glass card -->
+      <section class="flex-1">
+        <div class="glass-card px-6 py-7 md:px-7 md:py-8">
+          <h2 class="text-lg md:text-xl font-semibold mb-1 text-black dark:text-white">
+
+            Create a secure profile
+          </h2>
+          <p class="text-[12px] text-slate-600 dark:text-slate-300 mb-6">
+            We use interaction patterns and visual checks to ensure you’re a real person.
+          </p>
+
+          <form id="signupForm" class="space-y-7">
+            <!-- Details -->
+            <div class="space-y-3">
+              <div class="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-medium mb-1 text-slate-700 dark:text-slate-200">
+Full name</label>
+                  <input id="fullName" type="text" minlength="2" required
+                         class="glass-input focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                         placeholder="Alex Carter">
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium mb-1 text-slate-200 light:text-slate-700">Email address</label>
+                  <input id="email" type="email" required
+                         class="glass-input focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                         placeholder="you@example.com">
+                </div>
+              </div>
+            </div>
+
+            <!-- Password -->
+            <div class="space-y-3">
+              <div class="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-medium mb-1 text-slate-200 light:text-slate-700">Password</label>
+                  <input id="password" type="password" minlength="8" required
+                         class="glass-input focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                         placeholder="Min 8 characters">
+                  <p id="passwordHint" class="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+
+                    Include upper, lower, number & symbol.
+                  </p>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium mb-1 text-slate-200 light:text-slate-700">Confirm password</label>
+                  <input id="confirmPassword" type="password" minlength="8" required
+                         class="glass-input focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                         placeholder="Re-enter password">
+                  <p id="confirmHint" class="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+
+                    Re-enter to confirm.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- CAPTCHA -->
+            <div class="space-y-3">
+              <label class="block text-[11px] font-medium text-slate-700 dark:text-slate-200">
+
+                Visual human challenge
+              </label>
+              <div id="captchaContainer"
+                   class="rounded-2xl border border-slate-500/50 light:border-slate-200 bg-slate-900/60 light:bg-slate-50/80 px-3 py-3 flex items-center justify-center text-xs text-slate-300 light:text-slate-600 shadow-inner">
+                Loading CAPTCHA...
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <button id="refreshCaptcha" type="button"
+                        class="text-[11px] font-medium text-sky-300 light:text-sky-600 hover:text-sky-200 light:hover:text-sky-700 flex items-center gap-1">
+                  ↻ Refresh
+                </button>
+                <span class="text-[10px] text-slate-600 dark:text-slate-400">
+
+                  Engineered to resist automated solvers.
+                </span>
+              </div>
+              <input id="captchaAnswer" type="text" required
+                     class="glass-input focus:ring-2 focus:ring-sky-400 focus:border-sky-300 text-sm"
+                     placeholder="Type the characters shown">
+            </div>
+
+            <!-- Messages -->
+            <div id="errorMessage"
+                 class="hidden text-[11px] bg-red-500/10 border border-red-400/80 text-red-700 dark:text-red-300
+ light:bg-red-50 light:border-red-300 px-3 py-2 rounded-xl"></div>
+            <div id="successMessage"
+                 class="hidden text-[11px] bg-emerald-500/10 border border-emerald-400/80 text-emerald-700 dark:text-emerald-300
+ light:bg-emerald-50 light:border-emerald-300 px-3 py-2 rounded-xl"></div>
+
+            <!-- Submit -->
+            <button id="submitBtn" type="submit"
+                    class="w-full inline-flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold
+                           bg-gradient-to-r from-indigo-500 via-sky-400 to-emerald-400 text-slate-900
+                           hover:brightness-110 active:scale-[0.98] shadow-lg shadow-sky-400/40">
+              Create secure profile
+            </button>
+          </form>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // ------------ STATE ------------
+    let currentCaptchaId = null;
+    let mouseData = [];
+    let keystrokeData = [];
+    let isMouseDown = false;
+    let isTouchActive = false;
+
+    // Light/dark toggle for glass theme
+    const glassToggle = document.getElementById("glassDarkToggle");
+    const glassIcon = document.getElementById("glassDarkIcon");
+    const glassLabel = document.getElementById("glassDarkLabel");
+
+    glassToggle.addEventListener("click", () => {
+      document.body.classList.toggle("light");
+      const isLight = document.body.classList.contains("light");
+      glassIcon.textContent = isLight ? "🌙" : "☀️";
+      glassLabel.textContent = isLight ? "Dark mode" : "Light mode";
+    });
+
+    // ------------ CAPTCHA ------------
+    function generateRandomString(n) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let out = "";
+      for (let i = 0; i < n; i++) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return out;
+    }
+
+    function loadCaptcha() {
+      const container = document.getElementById("captchaContainer");
+      container.innerHTML = "";
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 230;
+      canvas.height = 70;
+      const ctx = canvas.getContext("2d");
+
+      const grad = ctx.createLinearGradient(0, 0, 230, 70);
+      grad.addColorStop(0, "#1f2937");
+      grad.addColorStop(1, "#0f766e");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 230, 70);
+
+      const text = generateRandomString(5);
+      currentCaptchaId = text;
+
+      ctx.font = "32px system-ui, sans-serif";
+      ctx.fillStyle = "#e5f4ff";
+
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(Math.random() * 230, Math.random() * 70);
+        ctx.lineTo(Math.random() * 230, Math.random() * 70);
+        ctx.strokeStyle = "rgba(59,130,246,0.8)";
+        ctx.lineWidth = 1 + Math.random() * 1.5;
+        ctx.stroke();
+      }
+
+      const startX = 25, baseY = 42;
+      text.split("").forEach((ch, idx) => {
+        const angle = (Math.random() * 0.6 - 0.3);
+        const wave = Math.sin(idx * 1.3) * 6;
+        ctx.save();
+        ctx.translate(startX + idx * 36, baseY + wave);
+        ctx.rotate(angle);
+        ctx.fillText(ch, 0, 0);
+        ctx.restore();
+      });
+
+      container.appendChild(canvas);
+      container.classList.remove("captcha-shake");
+      void container.offsetWidth;
+      container.classList.add("captcha-shake");
+    }
+
+    // ------------ BEHAVIOR TRACKING (NO VISUALS) ------------
+    function recordMouse(state, e) {
+      mouseData.push({
+        x: e.clientX,
+        y: e.clientY,
+        timestamp: Date.now(),
+        state
+      });
+    }
+
+    document.addEventListener("mousedown", e => {
+      isMouseDown = true;
+      recordMouse("down", e);
+    });
+
+    document.addEventListener("mousemove", e => {
+      if (isMouseDown) recordMouse("move", e);
+    });
+
+    document.addEventListener("mouseup", e => {
+      isMouseDown = false;
+      recordMouse("up", e);
+    });
+
+    function recordTouch(state, ev) {
+      const t = ev.touches[0] || ev.changedTouches[0];
+      if (!t) return;
+      mouseData.push({
+        x: t.clientX,
+        y: t.clientY,
+        timestamp: Date.now(),
+        state
+      });
+    }
+
+    document.addEventListener("touchstart", e => { isTouchActive = true; recordTouch("touchstart", e); });
+    document.addEventListener("touchmove",  e => { if (isTouchActive) recordTouch("touchmove", e); });
+    document.addEventListener("touchend",   e => { isTouchActive = false; recordTouch("touchend", e); });
+
+    // ------------ KEYSTROKE TRACKING ------------
+    function recordKey(e, type) {
+      keystrokeData.push({
+        key: e.key,
+        code: e.code,
+        field: e.target.id,
+        type,
+        timestamp: Date.now()
+      });
+    }
+
+    ["fullName", "email", "password", "confirmPassword", "captchaAnswer"].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener("keydown", e => recordKey(e, "down"));
+      el.addEventListener("keyup",   e => recordKey(e, "up"));
+    });
+
+    // ------------ CSV EXPORT ------------
+    function downloadCSV(name, rows) {
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]).join(",");
+      const lines = rows.map(r => Object.values(r).join(","));
+      const csv = [headers, ...lines].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ------------ VALIDATION ------------
+    function isStrongPassword(p) {
+      return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*\W).{8,}$/.test(p);
+    }
+
+    function validatePasswords() {
+      const pw = document.getElementById("password").value;
+      const cpw = document.getElementById("confirmPassword").value;
+      const hint = document.getElementById("passwordHint");
+      const chint = document.getElementById("confirmHint");
+
+      let ok = true;
+
+      if (!isStrongPassword(pw)) {
+        hint.classList.add("text-red-400", "light:text-red-600");
+        ok = false;
+      } else {
+        hint.classList.remove("text-red-400", "light:text-red-600");
+      }
+
+      if (!cpw || pw !== cpw) {
+        chint.textContent = "Passwords do not match.";
+        chint.classList.add("text-red-400", "light:text-red-600");
+        ok = false;
+      } else {
+        chint.textContent = "Re-enter to confirm.";
+        chint.classList.remove("text-red-400", "light:text-red-600");
+      }
+
+      return ok;
+    }
+
+    document.getElementById("password").addEventListener("input", validatePasswords);
+    document.getElementById("confirmPassword").addEventListener("input", validatePasswords);
+
+    // ------------ MESSAGES ------------
+    function showError(msg) {
+      const err = document.getElementById("errorMessage");
+      const ok = document.getElementById("successMessage");
+      ok.classList.add("hidden");
+      err.textContent = msg;
+      err.classList.remove("hidden");
+    }
+
+    function showSuccess(msg) {
+      const err = document.getElementById("errorMessage");
+      const ok = document.getElementById("successMessage");
+      err.classList.add("hidden");
+      ok.textContent = msg;
+      ok.classList.remove("hidden");
+    }
+
+    // ------------ SUBMIT ------------
+    document.getElementById("signupForm").addEventListener("submit", e => {
+      e.preventDefault();
+
+      const fullName = document.getElementById("fullName").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const cap = document.getElementById("captchaAnswer").value.trim().toUpperCase();
+
+      if (!fullName || fullName.length < 2) return showError("Please enter your full name.");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError("Please enter a valid email.");
+      if (!validatePasswords()) return showError("Fix password issues before continuing.");
+
+      if (!currentCaptchaId || cap !== currentCaptchaId.toUpperCase()) {
+        loadCaptcha();
+        return showError("Incorrect CAPTCHA. Try again.");
+      }
+
+      downloadCSV("behavior_data.csv", mouseData);
+      downloadCSV("keystroke_data.csv", keystrokeData);
+
+      showSuccess(`Profile created successfully. Welcome, ${fullName || email}.`);
+      document.getElementById("signupForm").reset();
+      mouseData = [];
+      keystrokeData = [];
+      loadCaptcha();
+    });
+
+    document.getElementById("refreshCaptcha").addEventListener("click", loadCaptcha);
+
+    // Init
+    loadCaptcha();
+  </script>
+</body>
+</html>
