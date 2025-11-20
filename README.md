@@ -44,11 +44,23 @@ An Anti-AI CAPTCHA system for CS7NS1 module at Trinity College Dublin. This proj
     python generate.py --width 128 --height 64 --min-length 5 --max-length 5 --symbols symbols.txt --count 10 --output-dir sample_data --bg-dir background_images --ov-dir overlay_images --font-dir fonts
     ```
 
-5. **Run the Server**
+5. **Train the Mouse Movement Prediction Model**
+
+   Navigate to the `captcha_mouse_movement_prediction` directory and run the training script:
+
+   Download the data folder from the provided link (<https://zenodo.org/records/50022>) and extract it into `captcha_mouse_movement_prediction/data/`.
+
+   ```bash
+   cd captcha-system/captcha_mouse_movement_prediction
+   python train_model.py
+   cd ../..
+   ```
+
+6. **Run the Server**
 
     ```bash
     python main.py
     ```
 
-6. **Access the CAPTCHA System**
+7. **Access the CAPTCHA System**
     Open your web browser and navigate to `http://localhost:8000` to access the CAPTCHA system.
