@@ -1,5 +1,13 @@
 {
   "python-envs.defaultEnvManager": "ms-python.python:pyenv",
   "python-envs.pythonProjects": [],
-  "cSpell.words": ["alphanum", "fromarray", "slowapi", "textlength", "venv"]
+  "cSpell.words": [
+    "alphanum",
+    "fromarray",
+    "interp",
+    "linalg",
+    "slowapi",
+    "textlength",
+    "venv"
+  ]
 }

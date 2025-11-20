@@ -209,3 +209,5 @@ __marimo__/
 # Generated files
 captcha-system/captcha_images/
 captcha-system/sample_data/
+captcha-system/captcha_mouse_movement_prediction/data/
+captcha-system/captcha_mouse_movement_prediction/2015-01-28-data.tar
