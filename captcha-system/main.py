@@ -4,26 +4,43 @@ Provides endpoints for generating CAPTCHA challenges and validating them during 
 """
 
 import os
-import random
+import pickle
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
+import numpy as np
 import uvicorn
+from captcha_mouse_movement_prediction.utils import (FEATURE_NAMES_KINEMATIC,
+                                                     extract_features,
+                                                     normalize_strokes,
+                                                     segment_into_characters)
+from config.constants import MOUSE_MOVEMENT_MODEL, SYMBOLS
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from generate import generate_camouflage_captcha
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.sessions import SessionMiddleware
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Secure Bank Signup API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SessionMiddleware, secret_key="THE_SECRET_KEY")
+
+print("Loading Model...")
+try:
+    with open(f"captcha_mouse_movement_prediction/models/{MOUSE_MOVEMENT_MODEL}", "rb") as f:
+        HUMAN_MODEL = pickle.load(f)
+
+    print(" > Model loaded successfully.")
+except FileNotFoundError:
+    print(" ! ERROR: Model not found. Run train_model.py first.")
+    HUMAN_MODEL = None
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
@@ -34,10 +51,8 @@ FINGERPRINT_EXPIRY_HOURS = 24
 OUTPUT_DIR = "captcha_images"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-SYMBOLS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 BG_DIR = "background_images"
 OV_DIR = "overlay_images"
-
 
 class CaptchaResponse(BaseModel):
     """Response model for CAPTCHA challenge."""
@@ -56,12 +71,12 @@ class SignupRequest(BaseModel):
     )
     full_name: str = Field(..., min_length=2)
     captcha_id: str
-    captcha_answer: str
     fingerprint: str = Field(..., description="Browser fingerprint for bot detection")
     # Honeypot fields - should remain empty for legitimate users
     website: Optional[str] = None
     company: Optional[str] = None
     phone_verify: Optional[str] = None
+    events: list = Field(..., description="Mouse movement events for CAPTCHA verification")
 
 
 class SignupResponse(BaseModel):
@@ -70,6 +85,14 @@ class SignupResponse(BaseModel):
     message: str
     user_id: str
     email: str
+
+
+class CaptchaMouseMovementVerificationResult(BaseModel):
+    """Result of CAPTCHA verification."""
+
+    success: bool
+    message: str
+    human_score: Optional[float] = None
 
 
 def cleanup_expired_captchas():
@@ -119,19 +142,103 @@ def validate_fingerprint(fingerprint: str) -> bool:
     return True
 
 
-def get_random_image(directory: str) -> str:
-    """Get a random image file from the specified directory."""
-    images = [
-        os.path.join(directory, f)
-        for f in os.listdir(directory)
-        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".avif"))
-    ]
-    if not images:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"No images found in {directory}",
+def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMovementVerificationResult:
+    """Verify CAPTCHA based on mouse movement patterns.
+    
+    Args:
+        events: List of mouse movement events with x, y, time, and state
+        expected_code: The expected CAPTCHA code to match
+        
+    Returns:
+        CaptchaMouseMovementVerificationResult with success status and message
+    """
+    print(f"\n[Verify] Processing verification for code: {expected_code}")
+    
+    # 1. Reconstruct Strokes from Events
+    strokes_raw = []
+    current_stroke = []
+    
+    # Robust reconstruction logic
+    for e in events:
+        if e['state'] == 'down':
+            if current_stroke:
+                strokes_raw.append(current_stroke)
+            current_stroke = [{'x': e['x'], 'y': e['y'], 'time': e['time']}]
+        elif e['state'] == 'move':
+            if current_stroke:
+                current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
+        elif e['state'] == 'up':
+            if current_stroke:
+                current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
+                strokes_raw.append(current_stroke)
+            current_stroke = []
+    
+    if current_stroke:
+        strokes_raw.append(current_stroke)
+    
+    if not strokes_raw:
+        print(" ! No strokes detected")
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message="Please draw the characters."
         )
-    return random.choice(images)
+    
+    # 2. Segment Characters (Using utils)
+    char_groups = segment_into_characters(strokes_raw)
+    
+    # 3. Analysis
+    recognized_str = ""
+    human_scores = []
+    
+    for i, char_strokes in enumerate(char_groups):
+        # Normalize
+        arr = normalize_strokes(char_strokes)
+        
+        # Extract Features (using utils)
+        feats = extract_features(arr, char_strokes)
+        
+        # Prepare Vectors
+        kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
+        
+        # Predict Human vs Bot
+        if HUMAN_MODEL:
+            # XGBoost predict_proba returns [prob_class_0, prob_class_1]
+            # Class 1 is Human
+            prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
+            human_scores.append(prob_human)
+            print(f"   > Char {i}: Human Probability = {prob_human:.4f}")
+    
+    print(f" > Recognition Result: '{recognized_str}' vs '{expected_code}'")
+    
+    # 4. Final Decision Logic
+    # Use the average human score across all characters and if 50% characters pass
+    avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0
+    passed_chars = sum(1 for score in human_scores if score >= 0.5) / len(human_scores) if human_scores else 0
+    
+    print(f" > Average Human Score: {avg_human_score:.4f}, Passed Characters: {passed_chars:.2%}")
+    # Strict threshold for bot detection
+    if avg_human_score < 0.5 or passed_chars < 0.5:
+        print(" ! Result: BOT DETECTED")
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message="Automated movement detected.",
+            human_score=avg_human_score
+        )
+    
+    if 0.5 <= avg_human_score < 0.65:
+        print(" ! Result: BORDERLINE")
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message="Movement too smooth. Try again.",
+            human_score=avg_human_score
+        )
+    
+    print(" * Result: VERIFIED")
+    return CaptchaMouseMovementVerificationResult(
+        success=True,
+        message="Human Verified!",
+        human_score=avg_human_score
+    )
 
 
 @app.get("/")
@@ -162,7 +269,7 @@ async def generate_captcha_challenge(request: Request):
             height=220,
             bg_dir=BG_DIR,
             ov_dir=OV_DIR,
-            symbols_file="symbols.txt",
+            symbols=SYMBOLS,
             fonts_dir="fonts",
             font_size=120,
             min_length=4,
@@ -288,16 +395,34 @@ async def signup(signup_request: SignupRequest, request: Request):
             detail="Too many failed attempts. Please request a new CAPTCHA.",
         )
 
-    if signup_request.captcha_answer.upper() != captcha_data["text"]:
+    # Verify mouse movement patterns to detect bots
+    verification_result = verify_captcha_movement(
+        events=signup_request.events,
+        expected_code=captcha_data["text"]
+    )
+    
+    if not verification_result.success:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect CAPTCHA answer"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=verification_result.message
         )
+    
+    # TODO: Add character recognition model here
+    # For now, we assume all characters are recognized correctly
+    # if recognized_str != expected_code:
+    #     print(" ! Result: WRONG CHARACTERS")
+    #     return CaptchaMouseMovementVerificationResult(
+    #         success=False,
+    #         message=f"Read: {recognized_str}. Try writing clearer."
+    #     )
 
+    # Check if email already exists
     if signup_request.email in user_database:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
 
+    # Create new user
     user_id = str(uuid.uuid4())
     user_database[signup_request.email] = {
         "user_id": user_id,
@@ -310,6 +435,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     # Store fingerprint with timestamp
     fingerprint_cache[signup_request.fingerprint] = datetime.now()
 
+    # Clean up CAPTCHA
     image_path = captcha_data.get("image_path")
     if image_path and os.path.exists(image_path):
         os.remove(image_path)

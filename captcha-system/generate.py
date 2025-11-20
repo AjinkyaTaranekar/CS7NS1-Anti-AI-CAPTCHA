@@ -205,7 +205,7 @@ def generate_camouflage_captcha(
     height: int,
     bg_dir: str,
     ov_dir: str,
-    symbols_file: str,
+    symbols: str,
     fonts_dir: str,
     font_size: int,
     min_length: int,
@@ -217,14 +217,6 @@ def generate_camouflage_captcha(
 ) -> Tuple[Optional[Image.Image], str]:
     """Generate a single camouflage CAPTCHA and return the image and text."""
     
-    if not os.path.exists(symbols_file):
-        print(f"Warning: '{symbols_file}' missing → using default alphanum")
-        sym = "abcdefghijklmnopqrstuvwxyz0123456789"
-    else:
-        with open(symbols_file) as f:
-            sym = f.read().strip().lower()
-        if not sym:
-            sym = "abcdefghijklmnopqrstuvwxyz0123456789"
     font_path = None
     if fonts_dir and os.path.isdir(fonts_dir):
         font_files = [
@@ -268,7 +260,7 @@ def generate_camouflage_captcha(
     ov_colors = {p: get_dominant_color(p) for p in ov_paths}
 
     length = random.randint(min_length, max_length)
-    text = "".join(random.choice(sym) for _ in range(length))
+    text = "".join(random.choice(symbols) for _ in range(length))
 
     bg = random.choice(bg_paths)
     bg_hue = bg_colors[bg][0]
@@ -310,7 +302,7 @@ def generate_captchas():
     parser.add_argument("--output-dir", type=str, default="camouflage_output")
     parser.add_argument("--bg-dir", type=str, default="background_images")
     parser.add_argument("--ov-dir", type=str, default="overlay_images")
-    parser.add_argument("--symbols", type=str, default="symbols.txt")
+    parser.add_argument("--symbols", type=str, default="abcdefghijklmnopqrstuvwxyz23456789",)
     parser.add_argument("--min-length", type=int, default=4)
     parser.add_argument("--max-length", type=int, default=6)
     parser.add_argument("--fonts-dir", type=str, default="fonts",
@@ -336,7 +328,7 @@ def generate_captchas():
             height=args.height,
             bg_dir=args.bg_dir,
             ov_dir=args.ov_dir,
-            symbols_file=args.symbols,
+            symbols=args.symbols,
             fonts_dir=args.fonts_dir,
             font_size=args.font_size,
             min_length=args.min_length,
