@@ -103,7 +103,7 @@
                                     <label class="block text-[11px] font-medium mb-1 text-slate-200">Full name</label>
                                     <input id="fullName" type="text" minlength="2" required
                                            class="glass-input w-full px-4 py-3 rounded-2xl border text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
-                                           placeholder="Alex Carter">
+                                           placeholder="Your Full Name">
                                 </div>
                                 <div>
                                     <label class="block text-[11px] font-medium mb-1 text-slate-200">Email address</label>
@@ -140,7 +140,6 @@
                             </div>
                         </div>
 
-                        <!-- Honeypot Fields (Hidden) -->
                         <div class="hp-field" aria-hidden="true">
                             <label for="website">Website URL</label>
                             <input type="url" id="website" name="website" autocomplete="off" tabindex="-1" placeholder="https://example.com">
@@ -148,6 +147,10 @@
                         <div class="hp-field" aria-hidden="true">
                             <label for="company">Company Name</label>
                             <input type="text" id="company" name="company" autocomplete="off" tabindex="-1" placeholder="Your company">
+                        </div>
+                        <div class="hp-field" aria-hidden="true">
+                            <label for="phone_verify">Phone Verification</label>
+                            <input type="tel" id="phone_verify" name="phone_verify" autocomplete="off" tabindex="-1" placeholder="123-456-7890">
                         </div>
 
                         <!-- CAPTCHA Section -->
@@ -417,14 +420,12 @@
             
             try {
                 const response = await fetch('/api/captcha/challenge', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    method: 'POST'
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to load CAPTCHA');
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to load CAPTCHA');
                 }
 
                 const data = await response.json();
@@ -506,20 +507,9 @@
         document.getElementById('password').addEventListener('input', validatePasswords);
         document.getElementById('confirmPassword').addEventListener('input', validatePasswords);
 
-        // TODO: Remove this dummy values setup in production
-        const fields = {
-            fullName: 'John Doe',
-            email: 'john.doe@example.com',
-            password: 'StrongP@ssw0rd!',
-            confirmPassword: 'StrongP@ssw0rd!'
+        function captureCanvasImage() {
+            return canvas.toDataURL('image/png');
         }
-
-        Object.keys(fields).forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.value = fields[id];
-            }
-        });
 
         // Handle form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
@@ -543,7 +533,8 @@
             // Additional Info Fields checks
             const website = document.getElementById('website').value;
             const company = document.getElementById('company').value;
-            if ((website && website.trim()) || (company && company.trim())) {
+            const phone_verify = document.getElementById('phone_verify').value;
+            if ((website && website.trim()) || (company && company.trim()) || (phone_verify && phone_verify.trim())) {
                 showError('Please try again.');
                 return;
             }
@@ -566,17 +557,22 @@
                 return;
             }
 
+            // Capture canvas drawing
+            const canvasImage = captureCanvasImage();
+
             const formData = {
                 email: email,
                 password: document.getElementById('password').value,
                 full_name: fullName,
                 captcha_id: currentCaptchaId,
                 fingerprint: generateFingerprint(),
-                website: website,
-                company: company,
+                website: website || null,
+                company: company || null,
+                phone_verify: phone_verify || null,
                 events: mouseEvents,           // Canvas drawing events
                 mouseData: mouseData,           // Global mouse/touch tracking
-                keystrokeData: keystrokeData    // Keyboard tracking
+                keystrokeData: keystrokeData,   // Keyboard tracking
+                canvasImage: canvasImage,       // Canvas drawing as image
             };
 
             try {
@@ -588,28 +584,41 @@
                     body: JSON.stringify(formData)
                 });
 
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || 'Signup failed');
+                if (response.ok) {
+                    const data = await response.json();
+                    showSuccess(`Account created successfully! Welcome, ${data.email}`);
+                    document.getElementById('signupForm').reset();
+                    
+                    // Clear tracking data
+                    mouseData = [];
+                    keystrokeData = [];
+                    mouseEvents = [];
+                    
+                    // Reload CAPTCHA for next use
+                    setTimeout(() => {
+                        loadCaptcha();
+                    }, 2000);
+                } else {
+                    const data = await response.json().catch(() => ({detail: 'Signup failed'}));
+                    
+                    // Handle 428 (CHALLENGE) - requires new CAPTCHA
+                    if (response.status === 428) {
+                        showError(data.detail + ' Generating new CAPTCHA...');
+                        await loadCaptcha();
+                        // Clear only canvas events, keep behavioral data
+                        mouseEvents = [];
+                        clearDrawing();
+                    } else {
+                        showError(data.detail || 'Signup failed');
+                        // Reload CAPTCHA on other errors
+                        await loadCaptcha();
+                    }
                 }
 
-                showSuccess(`Account created successfully! Welcome, ${data.email}`);
-                document.getElementById('signupForm').reset();
-                
-                // Clear tracking data
-                mouseData = [];
-                keystrokeData = [];
-                
-                // Reload CAPTCHA for next use
-                setTimeout(() => {
-                    loadCaptcha();
-                }, 2000);
-
             } catch (error) {
-                showError(error.message);
+                showError('Network error: ' + error.message);
                 
-                // Reload CAPTCHA on error
+                // Reload CAPTCHA on network error
                 await loadCaptcha();
             } finally {
                 submitBtn.disabled = false;
