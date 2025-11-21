@@ -279,6 +279,14 @@
                                         </svg>
                                         Clear Drawing
                                     </button>
+                                    <button
+                                        type="button"
+                                        id="undoStroke"
+                                        class="text-[11px] text-slate-300 hover:text-slate-100 font-medium flex items-center gap-1 glass-link"
+                                        disabled
+                                    >
+                                        ⎌ Undo
+                                    </button>
                                 </div>
                                 <p class="mt-2 text-[11px] text-slate-400">Draw each character separately, lifting your mouse between letters.</p>
                             </div>
@@ -310,6 +318,10 @@
         let isDrawing = false;
         let isMouseDown = false;
         let isTouchActive = false;
+        let strokes = []; // Array of stroke arrays (each stroke is list of {x,y})
+        let strokeRanges = []; // {start, end} indexes into mouseEvents per stroke
+        let currentStroke = null;
+        let currentStrokeStartIdx = 0;
 
         // ------------ GLOBAL MOUSE/TOUCH TRACKING (not canvas drawing) ------------
         function recordMouse(state, e) {
@@ -407,10 +419,14 @@
         function startDrawing(e) {
             e.preventDefault();
             isDrawing = true;
+            // Start a new stroke collection
+            currentStroke = [];
+            currentStrokeStartIdx = mouseEvents.length;
             const pos = getCanvasXY(e);
             ctx.beginPath();
             ctx.moveTo(pos.x, pos.y);
             mouseEvents.push({x: pos.x, y: pos.y, time: Date.now(), state: 'down'});
+            currentStroke.push({x: pos.x, y: pos.y});
         }
 
         function draw(e) {
@@ -420,6 +436,7 @@
             ctx.lineTo(pos.x, pos.y);
             ctx.stroke();
             mouseEvents.push({x: pos.x, y: pos.y, time: Date.now(), state: 'move'});
+            currentStroke.push({x: pos.x, y: pos.y});
         }
 
         function stopDrawing(e) {
@@ -427,12 +444,24 @@
             if (isDrawing) {
                 isDrawing = false;
                 mouseEvents.push({x: 0, y: 0, time: Date.now(), state: 'up'});
+
+                // Finalize stroke and record its event indices for undo
+                if (currentStroke && currentStroke.length > 0) {
+                    strokes.push(currentStroke);
+                    strokeRanges.push({start: currentStrokeStartIdx, end: mouseEvents.length});
+                }
+
+                // Update undo button state
+                updateUndoUI();
             }
         }
 
         function clearDrawing() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             mouseEvents = [];
+            strokes = [];
+            strokeRanges = [];
+            updateUndoUI();
         }
 
         // Mouse events
@@ -447,6 +476,57 @@
 
         // Clear button
         document.getElementById('clearCanvas').addEventListener('click', clearDrawing);
+
+        // Undo option
+        function redrawCanvas() {
+            // Clear and redraw all strokes
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+
+            for (const stroke of strokes) {
+                if (!stroke || stroke.length === 0) continue;
+                ctx.beginPath();
+                ctx.moveTo(stroke[0].x, stroke[0].y);
+                for (let i = 1; i < stroke.length; i++) {
+                    ctx.lineTo(stroke[i].x, stroke[i].y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        function undoLastStroke() {
+            if (strokes.length === 0) return;
+            strokes.pop();
+            const r = strokeRanges.pop();
+            if (r) {
+                mouseEvents.splice(r.start, r.end - r.start);
+            }
+            redrawCanvas();
+            updateUndoUI();
+        }
+
+        function updateUndoUI() {
+            const btn = document.getElementById('undoStroke');
+            if (!btn) return;
+            if (strokes.length === 0) {
+                btn.disabled = true;
+            } else {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('undoStroke').addEventListener('click', undoLastStroke);
+
+        // Keyboard shortcut for Undo (Ctrl/Cmd + Z)
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                undoLastStroke();
+            }
+        });
 
         // Initialize canvas
         setupCanvas();
