@@ -683,8 +683,8 @@ async def generate_captcha_challenge(request: Request):
     # Proof-of-Work challenge token — store server-side and return to client
     challenge = secrets.token_hex(8)
     # Difficulty = number of leading hex '0' characters required in SHA256 hex
-    # Increased to 5 per user's request (still relatively low but stronger than 3)
-    difficulty = 5
+    # Increased to 4 per user's request (still relatively low but stronger than 3)
+    difficulty = 4
 
     captcha_id = str(uuid.uuid4())
     image_filename = f"{captcha_id}.png"
