@@ -727,6 +727,7 @@ async def generate_captcha_challenge(request: Request):
         # used to track proof-of-work usage and prevent replay
         "pow_challenge": challenge,
         "difficulty": difficulty,
+        "shown_to_user": False,
         "pow_attempts": 0,
         "used_nonces": [],
         "pow_solved": False,
@@ -755,6 +756,26 @@ async def generate_captcha_challenge(request: Request):
 @app.get("/captcha/{filename}")
 async def get_captcha_image(filename: str):
     """Serve CAPTCHA image file."""
+
+    captcha_id = filename.rsplit('.', 1)[0]
+    if captcha_id not in captcha_storage:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="CAPTCHA not found"
+        )
+
+    if captcha_storage[captcha_id]["expires_at"] < datetime.now():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE, detail="CAPTCHA has expired"
+        )
+
+    if captcha_storage[captcha_id]["shown_to_user"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="CAPTCHA image already served"
+        )
+    
+    # Mark the CAPTCHA as shown to the user
+    captcha_storage[captcha_id]["shown_to_user"] = True
+
     file_path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(file_path):
         raise HTTPException(
