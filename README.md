@@ -41,7 +41,7 @@ An Anti-AI CAPTCHA system for CS7NS1 module at Trinity College Dublin. This proj
    Ensure you have a `symbols.txt` file with the desired symbols and a directory `background_images` with background images, `overlay_images` with overlay images, and a `fonts` directory with font files.
 
     ```bash
-    python generate.py --width 128 --height 64 --min-length 5 --max-length 5 --symbols symbols.txt --count 10 --output-dir sample_data --bg-dir background_images --ov-dir overlay_images --font-dir fonts
+    python generate.py --width 400 --height 200 --min-length 5 --max-length 5 --symbols symbols.txt --count 5 --output-dir sample_data --bg-dir background_images --ov-dir overlay_images --fonts-dir fonts
     ```
 
 5. **Train the Mouse Movement Prediction Model**
