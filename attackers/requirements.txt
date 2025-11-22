@@ -1,0 +1,2 @@
+playwright==1.48.0
+litellm==1.42.2

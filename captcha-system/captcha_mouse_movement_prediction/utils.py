@@ -2,7 +2,6 @@ from typing import Any, Dict, List
 
 import numpy as np
 import yaml
-from scipy.interpolate import splev, splprep
 
 # ------------------------------------------------------------------
 # Configuration
@@ -187,50 +186,3 @@ def segment_into_characters(strokes_raw: List[List[Dict]]) -> List[List[List[Dic
 
     char_groups.sort(key=get_avg_x)
     return char_groups
-
-# ------------------------------------------------------------------
-# Synthetic Bot Generator (Advanced)
-# ------------------------------------------------------------------
-def generate_smooth_bot_data(human_strokes_raw: List[List[Dict]]) -> List[List[Dict]]:
-    """
-    Takes real human strokes and 'robotizes' them:
-    1. B-Spline smoothing to remove human tremor/jitter.
-    2. Re-sampling to simulate constant velocity (perfect mouse control).
-    """
-    bot_strokes = []
-    
-    for stroke in human_strokes_raw:
-        if len(stroke) < 4: 
-            # Too short to smooth, just copy with constant time
-            bot_strokes.append(stroke)
-            continue
-            
-        x = np.array([p['x'] for p in stroke])
-        y = np.array([p['y'] for p in stroke])
-        
-        try:
-            # 1. B-Spline Smoothing (removes jitter)
-            # s is the smoothing factor. Higher = smoother.
-            tck, u = splprep([x, y], s=500) 
-            unew = np.linspace(0, 1, len(x)) 
-            out = splev(unew, tck)
-            smooth_x, smooth_y = out[0], out[1]
-            
-            # 2. Constant Velocity Re-timing
-            # Robots don't accelerate/decelerate like humans at corners
-            new_points = []
-            start_time = stroke[0]['time']
-            # Assume bot draws at constant 10ms intervals
-            for i in range(len(smooth_x)):
-                new_points.append({
-                    'x': smooth_x[i],
-                    'y': smooth_y[i],
-                    'time': int(start_time + (i * 15)) # Constant 15ms spacing
-                })
-            bot_strokes.append(new_points)
-            
-        except Exception:
-            # Fallback if spline fails
-            bot_strokes.append(stroke)
-            
-    return bot_strokes
