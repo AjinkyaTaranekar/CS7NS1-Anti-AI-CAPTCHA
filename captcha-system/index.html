@@ -6,9 +6,93 @@
     <title>Scalable Secure Bank - Create Your Account</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        :root {
+            color-scheme: light dark;
+            --glass-bg: rgba(255,255,255,0.04);
+            --glass-border: rgba(255,255,255,0.06);
+            --glass-strong: rgba(255,255,255,0.08);
+            --accent-1: 93, 41, 244; /* purple */
+            --accent-2: 0, 150, 255; /* cyan */
+            --accent-3: 20, 184, 166; /* emerald-ish */
+            --page-sheen: linear-gradient(135deg, rgba(var(--accent-1),0.12) 0%, rgba(var(--accent-2),0.15) 40%, rgba(var(--accent-3),0.10) 100%);
         }
+
+        body {
+            min-height: 100vh;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .bg-glass-light {
+            background: radial-gradient(1200px 600px at 10% 20%, rgba(var(--accent-1),0.12) 0%, transparent 30%),
+                        radial-gradient(900px 600px at 90% 80%, rgba(var(--accent-2),0.12) 0%, transparent 30%),
+                        linear-gradient(180deg, #061226 0%, #07102b 60%);
+            min-height: 100vh;
+            background-attachment: fixed;
+            position: relative;
+        }
+
+        /* Decorative floating gradients */
+        .bg-glass-light::before {
+            content: '';
+            position: absolute;
+            left: -120px;
+            top: -100px;
+            width: 420px;
+            height: 420px;
+            border-radius: 50%;
+            background: radial-gradient(circle at center, rgba(var(--accent-1),0.14), rgba(var(--accent-2),0.06));
+            filter: blur(50px);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .glass-card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+            backdrop-filter: blur(8px) saturate(120%);
+            -webkit-backdrop-filter: blur(8px) saturate(120%);
+            border-radius: 14px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 30px rgba(2,6,23,0.6), inset 0 1px 0 rgba(255,255,255,0.03);
+            position: relative;
+            z-index: 2;
+        }
+
+        header { z-index: 5; position: relative; }
+
+        .logo-gradient {
+            background: linear-gradient(135deg, rgba(var(--accent-1),0.95), rgba(var(--accent-2),0.95));
+            box-shadow: 0 6px 18px rgba(2,6,23,0.5);
+        }
+
+        .glass-input {
+            background: rgba(255,255,255,0.02);
+            border-color: rgba(255,255,255,0.05);
+            color: #e6eef8;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.01);
+            transition: box-shadow 180ms ease, transform 180ms ease;
+        }
+
+        .glass-input:focus {
+            box-shadow: 0 6px 30px rgba(var(--accent-2), 0.12), inset 0 1px 0 rgba(255,255,255,0.02);
+            border-color: rgba(var(--accent-2),0.4);
+            transform: translateY(-1px);
+        }
+
+
+
+        .captcha-shake {
+            animation: captcha-shake 0.45s ease-in-out;
+        }
+        
+        @keyframes captcha-shake {
+            0% { transform: translateX(0); }
+            20% { transform: translateX(-6px); }
+            40% { transform: translateX(6px); }
+            60% { transform: translateX(-4px); }
+            80% { transform: translateX(3px); }
+            100% { transform: translateX(0); }
+        }
+
         .hp-field {
             position: absolute;
             left: -10000px;
@@ -17,181 +101,396 @@
             height: 1px;
             overflow: hidden;
         }
+
+        .glass-link {
+            background: transparent;
+            border-radius: 10px;
+            padding: 6px 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+            transition: background 160ms ease, transform 160ms ease;
+        }
+
+        .glass-link:hover {
+            background: rgba(255,255,255,0.02);
+            transform: translateY(-1px);
+        }
+
+        /* Canvas and image polish */
+        #drawingCanvas { box-shadow: 0 8px 30px rgba(2,6,23,0.5), inset 0 1px 0 rgba(255,255,255,0.02); }
+        #captchaContainer img { display: block; max-height: 170px; margin: 0 auto; border-radius: 10px; box-shadow: 0 8px 20px rgba(0,0,0,0.6); }
+
+        .btn-cta:disabled {
+            opacity: 0.65;
+            transform: none;
+            pointer-events: none;
+        }
+
+        .glass-input::placeholder { color: rgba(226,232,240,0.5); }
+
+        /* Buttons with smooth gradient and glass border */
+        .btn-cta {
+            background: linear-gradient(90deg, rgba(var(--accent-1),0.95), rgba(var(--accent-2),0.95));
+            border: 1px solid rgba(255,255,255,0.06);
+            box-shadow: 0 10px 30px rgba(8,11,22,0.7), 0 2px 6px rgba(var(--accent-2),0.08) inset;
+            transition: transform 160ms cubic-bezier(.2,.9,.3,1), box-shadow 180ms ease;
+        }
+
+        .btn-cta:hover { transform: translateY(-2px); }
+
+        /* Subtle glass on CAPTCHA container */
+        #captchaContainer {
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+            border: 1px solid rgba(255,255,255,0.04);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
     </style>
 </head>
-<body class="gradient-bg min-h-screen py-12 px-4">
-    <div class="max-w-screen-xl w-full mx-auto">
-        <!-- Header -->
-        <div class="text-center mb-8">
-            <div class="inline-block bg-white p-4 rounded-full shadow-lg mb-4">
-                <svg class="w-12 h-12 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
-                </svg>
+<body class="bg-glass-light text-slate-100">
+
+    <!-- Top bar -->
+    <header class="max-w-6xl mx-auto px-4 pt-5 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg logo-gradient flex items-center justify-center">
+                <span class="text-sm font-bold tracking-tight text-white">SB</span>
             </div>
-            <h1 class="text-4xl font-bold text-white mb-2">Scalable Secure Bank</h1>
-            <p class="text-purple-100">Create your secure banking account</p>
+            <div class="leading-tight">
+                <p class="text-sm font-semibold text-white">Scalable Bank</p>
+            </div>
         </div>
+    </header>
 
-        <!-- Signup Form Card -->
-        <div class="bg-white rounded-2xl shadow-2xl p-8">
-            <form id="signupForm" class="space-y-6">
-                <!-- User Details (Side-by-side on desktop) -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Full Name -->
-                    <div>
-                        <label for="fullName" class="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                        <input 
-                            type="text" 
-                            id="fullName" 
-                            name="fullName" 
-                            required 
-                            minlength="2"
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                            placeholder="John Doe"
-                        >
-                    </div>
+    <!-- Main -->
+    <main class="max-w-6xl mx-auto px-4 py-10 md:py-14">
+        <div class="flex flex-col md:flex-row items-center gap-8 md:gap-12">
 
-                    <!-- Email -->
-                    <div>
-                        <label for="email" class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                        <input 
-                            type="email" 
-                            id="email" 
-                            name="email" 
-                            required 
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                            placeholder="you@example.com"
-                        >
-                    </div>
-                </div>
+            <!-- Left text / hero -->
+            <section class="flex-1 space-y-5">
+                <h1 class="text-3xl md:text-4xl font-semibold leading-tight text-white">
+                    Create your account
+                </h1>
+                <p class="text-sm text-slate-300 max-w-md">
+                    Open a new account with Scalable Bank. We'll verify your identity to keep your account secure.
+                </p>
+            </section>
 
-                <!-- Passwords (Side-by-side on desktop) -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Password -->
-                    <div>
-                        <label for="password" class="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                        <input 
-                            type="password" 
-                            id="password" 
-                            name="password" 
-                            required 
-                            minlength="8"
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                            placeholder="Minimum 8 characters, mixed case, number, symbol"
-                            autocomplete="new-password"
-                        >
-                        <p id="passwordHint" class="mt-1 text-xs text-gray-500">Must be 8+ chars, include uppercase, lowercase, number, and symbol.</p>
-                    </div>
+            <!-- Right form glass card -->
+            <section class="flex-1">
+                <div class="glass-card px-6 py-7 md:px-7 md:py-8">
+                    <h2 class="text-lg md:text-xl font-semibold mb-1 text-white">
+                        Account Information
+                    </h2>
+                    <p class="text-[12px] text-slate-300 mb-6">
+                        Please fill in your details to create an account.
+                    </p>
 
-                    <!-- Confirm Password -->
-                    <div>
-                        <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
-                        <input 
-                            type="password" 
-                            id="confirmPassword" 
-                            name="confirmPassword" 
-                            required 
-                            minlength="8"
-                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                            placeholder="Re-enter your password"
-                            autocomplete="new-password"
-                        >
-                        <p id="confirmHint" class="mt-1 text-xs text-gray-500">Re-enter the same password to confirm.</p>
-                    </div>
-                </div>
-
-                <div class="hp-field" aria-hidden="true">
-                    <label for="website">Website URL</label>
-                    <input type="url" id="website" name="website" autocomplete="off" tabindex="-1" placeholder="https://example.com">
-                </div>
-                <div class="hp-field" aria-hidden="true">
-                    <label for="company">Company Name</label>
-                    <input type="text" id="company" name="company" autocomplete="off" tabindex="-1" placeholder="Your company">
-                </div>
-
-                <!-- CAPTCHA Section -->
-                <div class="border-t border-gray-200 pt-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-3">Security Verification</label>
-                    
-                    <!-- CAPTCHA Image -->
-                    <div class="mb-4">
-                        <div id="captchaContainer" class="bg-gray-100 rounded-lg p-4 text-center">
-                            <p class="text-gray-500">Loading CAPTCHA...</p>
+                    <form id="signupForm" class="space-y-7">
+                        <!-- User Details -->
+                        <div class="space-y-3">
+                            <div class="grid md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-medium mb-1 text-slate-200">Full name</label>
+                                    <input id="fullName" type="text" minlength="2" required
+                                           class="glass-input w-full px-4 py-3 rounded-2xl border text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                                           placeholder="Your Full Name">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-medium mb-1 text-slate-200">Email address</label>
+                                    <input id="email" type="email" required
+                                           class="glass-input w-full px-4 py-3 rounded-2xl border text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                                           placeholder="you@example.com">
+                                </div>
+                            </div>
                         </div>
-                        <button 
-                            type="button" 
-                            id="refreshCaptcha"
-                            class="mt-2 text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
-                        >
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                            </svg>
-                            Refresh CAPTCHA
+
+                        <!-- Password -->
+                        <div class="space-y-3">
+                            <div class="grid md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-medium mb-1 text-slate-200">Password</label>
+                                    <input id="password" type="password" minlength="8" required
+                                           class="glass-input w-full px-4 py-3 rounded-2xl border text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                                           placeholder="Min 8 characters"
+                                           autocomplete="new-password">
+                                    <p id="passwordHint" class="mt-1 text-[11px] text-slate-400">
+                                        Include upper, lower, number & symbol.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-medium mb-1 text-slate-200">Confirm password</label>
+                                    <input id="confirmPassword" type="password" minlength="8" required
+                                           class="glass-input w-full px-4 py-3 rounded-2xl border text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-300"
+                                           placeholder="Re-enter password"
+                                           autocomplete="new-password">
+                                    <p id="confirmHint" class="mt-1 text-[11px] text-slate-400">
+                                        Re-enter to confirm.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="hp-field" aria-hidden="true">
+                            <label for="website">Website URL</label>
+                            <input type="url" id="website" name="website" autocomplete="off" tabindex="-1" placeholder="https://example.com">
+                        </div>
+                        <div class="hp-field" aria-hidden="true">
+                            <label for="company">Company Name</label>
+                            <input type="text" id="company" name="company" autocomplete="off" tabindex="-1" placeholder="Your company">
+                        </div>
+                        <div class="hp-field" aria-hidden="true">
+                            <label for="phone_verify">Phone Verification</label>
+                            <input type="tel" id="phone_verify" name="phone_verify" autocomplete="off" tabindex="-1" placeholder="123-456-7890">
+                        </div>
+
+                        <!-- CAPTCHA Section -->
+                        <div class="space-y-3">
+                            <label class="block text-[11px] font-medium text-slate-200">
+                                Security verification
+                            </label>
+                            <div id="captchaContainer"
+                                 class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 flex items-center justify-center text-xs text-slate-300 min-h-[80px]">
+                                Loading CAPTCHA...
+                            </div>
+                            <!-- Proof-of-Work / mining controls -->
+                            <!-- mining-ui is intentionally hidden (auto-start mining in background) -->
+                            <div id="mining-ui" aria-hidden="true" class="mt-2 flex flex-col gap-2 items-center" style="display:none;">
+                                <!-- hidden element to hold challenge and difficulty for the worker -->
+                                <div id="challenge-data" data-val="" data-diff="" style="display:none;"></div>
+
+                                <div class="w-full flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2">
+                                        <button id="mine-btn" type="button" class="glass-link text-[11px] font-medium flex items-center gap-2" style="display:none;">Start mining</button>
+                                        <div id="status" class="text-xs text-slate-300">Not mining</div>
+                                    </div>
+                                    <div class="text-xs text-slate-400">Proof-of-work: <span id="pow-progress">—</span></div>
+                                </div>
+
+                                <!-- Hidden proof-of-work fields populated by the worker -->
+                                <input type="hidden" id="powNonce" name="nonce" value="">
+                                <input type="hidden" id="powTimeMs" name="mining_time_ms" value="">
+                            </div>
+                            <div class="flex items-center justify-between gap-3">
+                                <button id="refreshCaptcha" type="button"
+                                    class="text-[11px] font-medium text-blue-300 glass-link flex items-center gap-1">
+                                    ↻ Refresh
+                                </button>
+                            </div>
+
+                            <!-- Drawing Canvas -->
+                            <div>
+                                <label class="block text-[11px] font-medium mb-2 text-slate-200">Draw the characters shown above</label>
+                                <canvas 
+                                    id="drawingCanvas" 
+                                    width="600" 
+                                    height="200" 
+                                    class="w-full border-2 border-slate-600 rounded-lg cursor-crosshair bg-slate-900"
+                                    style="touch-action: none;"
+                                ></canvas>
+                                <div class="mt-2 flex gap-2">
+                                    <button 
+                                        type="button" 
+                                        id="clearCanvas"
+                                        class="text-[11px] text-slate-300 hover:text-slate-100 font-medium flex items-center gap-1"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                        Clear Drawing
+                                    </button>
+                                    <button
+                                        type="button"
+                                        id="undoStroke"
+                                        class="text-[11px] text-slate-300 hover:text-slate-100 font-medium flex items-center gap-1 glass-link"
+                                        disabled
+                                    >
+                                        ⎌ Undo
+                                    </button>
+                                </div>
+                                <p class="mt-2 text-[11px] text-slate-400">Draw each character separately, lifting your mouse between letters.</p>
+                            </div>
+                        </div>
+
+                        <!-- Messages -->
+                        <div id="errorMessage"
+                             class="hidden text-[11px] bg-red-500/10 border border-red-400/80 text-red-300 px-3 py-2 rounded-xl"></div>
+                        <div id="successMessage"
+                             class="hidden text-[11px] bg-emerald-500/10 border border-emerald-400/80 text-emerald-300 px-3 py-2 rounded-xl"></div>
+
+                        <!-- Submit -->
+                        <button id="submitBtn" type="submit"
+                            class="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold text-white btn-cta">
+                            Create Account
                         </button>
-                    </div>
-
-                    <!-- Drawing Canvas -->
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Draw the characters shown above</label>
-                        <canvas 
-                            id="drawingCanvas" 
-                            width="600" 
-                            height="200" 
-                            class="w-full border-2 border-gray-300 rounded-lg cursor-crosshair bg-white"
-                            style="touch-action: none;"
-                        ></canvas>
-                        <div class="mt-2 flex gap-2">
-                            <button 
-                                type="button" 
-                                id="clearCanvas"
-                                class="text-sm text-gray-600 hover:text-gray-800 font-medium flex items-center gap-1"
-                            >
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                </svg>
-                                Clear Drawing
-                            </button>
-                        </div>
-                        <p class="mt-2 text-xs text-gray-500">Draw each character separately, lifting your mouse between letters.</p>
-                    </div>
+                    </form>
                 </div>
-
-                <!-- Error Message -->
-                <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"></div>
-
-                <!-- Success Message -->
-                <div id="successMessage" class="hidden bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm"></div>
-
-                <!-- Submit Button -->
-                <button 
-                    type="submit" 
-                    id="submitBtn"
-                    class="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 px-6 rounded-lg font-semibold hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition shadow-lg"
-                >
-                    Create Account
-                </button>
-            </form>
-
-            <!-- Footer -->
-            <p class="mt-6 text-center text-sm text-gray-600">
-                Already have an account? 
-                <a href="#" class="text-purple-600 hover:text-purple-800 font-medium">Sign in</a>
-            </p>
+            </section>
         </div>
+    </main>
 
-        <!-- Security Notice -->
-        <div class="mt-6 text-center text-sm text-purple-100">
-            <svg class="w-4 h-4 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
-            </svg>
-            Your data is encrypted and secured
-        </div>
-    </div>
+    <script id="worker-code" type="javascript/worker">
+        self.onmessage = async function(e) {
+            const { challenge, difficulty } = e.data;
+            const prefix = "0".repeat(difficulty);
+            let nonce = 0;
+            
+            // The Heavy Loop
+            while (true) {
+                const str = challenge + nonce;
+                const msgBuffer = new TextEncoder().encode(str);
+                const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                
+                if (hashHex.startsWith(prefix)) {
+                    // Found it! Send back to main thread
+                    self.postMessage({ found: true, nonce: nonce, hash: hashHex });
+                    return;
+                }
+                nonce++;
+                
+                // Every 5000 iterations, tell the UI we are still alive
+                if (nonce % 5000 === 0) {
+                    self.postMessage({ found: false, attempts: nonce });
+                }
+            }
+        };
+    </script>
 
     <script>
+        let worker;
+
+        function startWorkerMining() {
+            const challenge = document.getElementById('challenge-data').dataset.val;
+            const difficulty = parseInt(document.getElementById('challenge-data').dataset.diff);
+            const statusDiv = document.getElementById('status');
+            const btn = document.getElementById('mine-btn');
+
+            // UI Updates
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div> Mining...';
+            statusDiv.innerText = "Initializing worker...";
+
+            // 1. Create the Worker from the script tag above
+            const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
+            worker = new Worker(window.URL.createObjectURL(blob));
+
+            // Track the start time for mining to compute mining duration
+            const mineStart = Date.now();
+            window.__powStartTime = mineStart;
+
+            // 2. Send data TO the worker
+            worker.postMessage({ challenge, difficulty });
+
+            // Ensure submit is disabled while mining
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) submitBtn.disabled = true;
+
+            // 3. Listen for messages FROM the worker
+            worker.onmessage = function(e) {
+                if (e.data.found) {
+                    // Worker found the answer!
+                    const mineEnd = Date.now();
+                    const duration = mineEnd - (window.__powStartTime || mineStart);
+                    // Save mining duration into a hidden input so server can use it
+                    const powTimeInput = document.getElementById('powTimeMs');
+                    if (powTimeInput) powTimeInput.value = String(duration);
+                    statusDiv.innerText = "Puzzle solved — nonce found." + e.data.nonce + ' (' + duration + 'ms)';
+                    worker.terminate(); // Kill the worker to free memory
+                    // Put nonce into hidden input so it will be sent with signup
+                    const powInput = document.getElementById('powNonce');
+                    if (powInput) powInput.value = e.data.nonce;
+                    // submitBtn already cached above — enable it
+                    if (submitBtn) submitBtn.disabled = false; // allow signup now
+                    document.getElementById('pow-progress').innerText = 'Solved';
+                } else {
+                    // Update progress (optional)
+                    statusDiv.innerText = `Mining... (${e.data.attempts} attempts)`;
+                    document.getElementById('pow-progress').innerText = e.data.attempts + ' attempts';
+                }
+            };
+        }
+
+        function verifyWithServer(nonce) {
+            const powInput = document.getElementById('powNonce');
+            if (powInput) powInput.value = nonce;
+            document.getElementById('status').innerText = 'Puzzle solved — ready to submit';
+            document.getElementById('mine-btn').disabled = true;
+            document.getElementById('pow-progress').innerText = 'Solved';
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    </script>
+
+    
+    <script>
+        // ------------ STATE ------------
         let currentCaptchaId = null;
-        let mouseEvents = [];
+        let mouseEvents = [];  // Canvas drawing events
+        let mouseData = [];    // Global mouse tracking (separate from drawing)
+        let keystrokeData = []; // Keyboard tracking
         let isDrawing = false;
+        let isMouseDown = false;
+        let isTouchActive = false;
+        let strokes = []; // Array of stroke arrays (each stroke is list of {x,y})
+        let strokeRanges = []; // {start, end} indexes into mouseEvents per stroke
+        let currentStroke = null;
+        let currentStrokeStartIdx = 0;
+
+        // ------------ GLOBAL MOUSE/TOUCH TRACKING (not canvas drawing) ------------
+        function recordMouse(state, e) {
+            mouseData.push({
+                x: e.clientX,
+                y: e.clientY,
+                timestamp: Date.now(),
+                state
+            });
+        }
+
+        document.addEventListener("mousedown", e => {
+            isMouseDown = true;
+            recordMouse("down", e);
+        });
+
+        document.addEventListener("mousemove", e => {
+            if (isMouseDown) recordMouse("move", e);
+        });
+
+        document.addEventListener("mouseup", e => {
+            isMouseDown = false;
+            recordMouse("up", e);
+        });
+
+        function recordTouch(state, ev) {
+            const t = ev.touches[0] || ev.changedTouches[0];
+            if (!t) return;
+            mouseData.push({
+                x: t.clientX,
+                y: t.clientY,
+                timestamp: Date.now(),
+                state
+            });
+        }
+
+        document.addEventListener("touchstart", e => { isTouchActive = true; recordTouch("touchstart", e); });
+        document.addEventListener("touchmove",  e => { if (isTouchActive) recordTouch("touchmove", e); });
+        document.addEventListener("touchend",   e => { isTouchActive = false; recordTouch("touchend", e); });
+
+        // ------------ KEYSTROKE TRACKING ------------
+        function recordKey(e, type) {
+            keystrokeData.push({
+                key: e.key,
+                code: e.code,
+                field: e.target.id,
+                type,
+                timestamp: Date.now()
+            });
+        }
+
+        ["fullName", "email", "password", "confirmPassword"].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener("keydown", e => recordKey(e, "down"));
+            el.addEventListener("keyup",   e => recordKey(e, "up"));
+        });
 
         // Canvas setup
         const canvas = document.getElementById('drawingCanvas');
@@ -214,7 +513,10 @@
             ctx.lineWidth = 3;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.strokeStyle = '#000';
+            // Draw in white for better contrast on dark background
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 1;
         }
 
         function getCanvasXY(e) {
@@ -230,10 +532,14 @@
         function startDrawing(e) {
             e.preventDefault();
             isDrawing = true;
+            // Start a new stroke collection
+            currentStroke = [];
+            currentStrokeStartIdx = mouseEvents.length;
             const pos = getCanvasXY(e);
             ctx.beginPath();
             ctx.moveTo(pos.x, pos.y);
             mouseEvents.push({x: pos.x, y: pos.y, time: Date.now(), state: 'down'});
+            currentStroke.push({x: pos.x, y: pos.y});
         }
 
         function draw(e) {
@@ -243,6 +549,7 @@
             ctx.lineTo(pos.x, pos.y);
             ctx.stroke();
             mouseEvents.push({x: pos.x, y: pos.y, time: Date.now(), state: 'move'});
+            currentStroke.push({x: pos.x, y: pos.y});
         }
 
         function stopDrawing(e) {
@@ -250,12 +557,24 @@
             if (isDrawing) {
                 isDrawing = false;
                 mouseEvents.push({x: 0, y: 0, time: Date.now(), state: 'up'});
+
+                // Finalize stroke and record its event indices for undo
+                if (currentStroke && currentStroke.length > 0) {
+                    strokes.push(currentStroke);
+                    strokeRanges.push({start: currentStrokeStartIdx, end: mouseEvents.length});
+                }
+
+                // Update undo button state
+                updateUndoUI();
             }
         }
 
         function clearDrawing() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             mouseEvents = [];
+            strokes = [];
+            strokeRanges = [];
+            updateUndoUI();
         }
 
         // Mouse events
@@ -270,6 +589,57 @@
 
         // Clear button
         document.getElementById('clearCanvas').addEventListener('click', clearDrawing);
+
+        // Undo option
+        function redrawCanvas() {
+            // Clear and redraw all strokes
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+
+            for (const stroke of strokes) {
+                if (!stroke || stroke.length === 0) continue;
+                ctx.beginPath();
+                ctx.moveTo(stroke[0].x, stroke[0].y);
+                for (let i = 1; i < stroke.length; i++) {
+                    ctx.lineTo(stroke[i].x, stroke[i].y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        function undoLastStroke() {
+            if (strokes.length === 0) return;
+            strokes.pop();
+            const r = strokeRanges.pop();
+            if (r) {
+                mouseEvents.splice(r.start, r.end - r.start);
+            }
+            redrawCanvas();
+            updateUndoUI();
+        }
+
+        function updateUndoUI() {
+            const btn = document.getElementById('undoStroke');
+            if (!btn) return;
+            if (strokes.length === 0) {
+                btn.disabled = true;
+            } else {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('undoStroke').addEventListener('click', undoLastStroke);
+
+        // Keyboard shortcut for Undo (Ctrl/Cmd + Z)
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                undoLastStroke();
+            }
+        });
 
         // Initialize canvas
         setupCanvas();
@@ -330,35 +700,65 @@
         // Load CAPTCHA on page load
         async function loadCaptcha() {
             const container = document.getElementById('captchaContainer');
-            container.innerHTML = '<p class="text-gray-500">Loading CAPTCHA...</p>';
+            container.innerHTML = '<p class="text-slate-300">Loading CAPTCHA...</p>';
             
             try {
                 const response = await fetch('/api/captcha/challenge', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    method: 'POST'
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to load CAPTCHA');
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to load CAPTCHA');
                 }
 
                 const data = await response.json();
                 currentCaptchaId = data.captcha_id;
-                
+                // Push the PoW challenge into a hidden DOM node for the worker
+                const challengeEl = document.getElementById('challenge-data');
+                if (challengeEl) {
+                    challengeEl.dataset.val = data.challenge || '';
+                    challengeEl.dataset.diff = data.difficulty || 3;
+                }
+
+                // Reset PoW UI / nonce state — signup requires nonce to be present
+                const powInput = document.getElementById('powNonce');
+                if (powInput) powInput.value = '';
+                const submitBtn = document.getElementById('submitBtn');
+                if (submitBtn) submitBtn.disabled = true;
+                const statusEl = document.getElementById('status');
+                if (statusEl) statusEl.innerText = 'Not mining';
                 container.innerHTML = `
                     <img 
                         src="${data.captcha_image_url}" 
                         alt="CAPTCHA" 
-                        class="max-w-full h-auto rounded-lg shadow-inner"
+                        class="max-w-full h-32 rounded-lg shadow-inner"
                     >
                 `;
                 
                 clearDrawing();
+                // Ensure the mine button is wired after loading a new challenge
+                try {
+                    const mineBtn = document.getElementById('mine-btn');
+                    if (mineBtn) {
+                        mineBtn.disabled = false;
+                        mineBtn.innerText = 'Start mining';
+                        mineBtn.addEventListener('click', startWorkerMining);
+                    }
+                } catch (e) {
+                    console.warn('Mine button setup failed', e);
+                }
+                // Auto-start mining silently in background (fully hidden, no device checks)
+                try {
+                    // Reset retry counter for the new captcha
+                    window.__autoMineRetries = 0;
+                    startWorkerMining();
+                } catch (e) {
+                    console.warn('Auto-start miner failed', e);
+                }
             } catch (error) {
                 container.innerHTML = `
-                    <p class="text-red-500">Failed to load CAPTCHA. Please refresh.</p>
+                    <p class="text-red-400">Failed to load CAPTCHA. Please refresh.</p>
                 `;
                 console.error('CAPTCHA load error:', error);
             }
@@ -387,7 +787,7 @@
             successDiv.textContent = message;
             successDiv.classList.remove('hidden');
         }
-
+        
         // Password validation
         function isStrongPassword(pw) {
             // At least 8 chars, one uppercase, one lowercase, one digit, one special
@@ -403,44 +803,31 @@
 
             let ok = true;
             if (!isStrongPassword(pw)) {
-                hint.classList.remove('text-gray-500');
-                hint.classList.add('text-red-600');
+                hint.classList.add('text-red-400');
                 ok = false;
             } else {
-                hint.classList.remove('text-red-600');
-                hint.classList.add('text-gray-500');
+                hint.classList.remove('text-red-400');
             }
 
             if (cpw && pw !== cpw) {
                 chint.textContent = 'Passwords do not match. Please re-enter.';
-                chint.classList.remove('text-gray-500');
-                chint.classList.add('text-red-600');
+                chint.classList.add('text-red-400');
                 ok = false;
             } else {
-                chint.textContent = 'Re-enter the same password to confirm.';
-                chint.classList.remove('text-red-600');
-                chint.classList.add('text-gray-500');
+                chint.textContent = 'Re-enter to confirm.';
+                chint.classList.remove('text-red-400');
             }
             return ok;
         }
 
-        // TODO: Remove this dummy values setup in production
-        const fields = {
-            fullName: 'John Doe',
-            email: 'john.doe@example.com',
-            password: 'StrongP@ssw0rd!',
-            confirmPassword: 'StrongP@ssw0rd!'
-        }
-
-        Object.keys(fields).forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.value = fields[id];
-            }
-        });
-
         document.getElementById('password').addEventListener('input', validatePasswords);
         document.getElementById('confirmPassword').addEventListener('input', validatePasswords);
+
+        // No device checks: mining will auto-start in background on all devices per user's request.
+
+        function captureCanvasImage() {
+            return canvas.toDataURL('image/png');
+        }
 
         // Handle form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
@@ -464,7 +851,8 @@
             // Additional Info Fields checks
             const website = document.getElementById('website').value;
             const company = document.getElementById('company').value;
-            if ((website && website.trim()) || (company && company.trim())) {
+            const phone_verify = document.getElementById('phone_verify').value;
+            if ((website && website.trim()) || (company && company.trim()) || (phone_verify && phone_verify.trim())) {
                 showError('Please try again.');
                 return;
             }
@@ -487,15 +875,32 @@
                 return;
             }
 
+            // Capture canvas drawing
+            const canvasImage = captureCanvasImage();
+
+            // Ensure PoW nonce is present
+            const powNonce = document.getElementById('powNonce').value;
+            if (!powNonce) {
+                showError('Please solve the proof-of-work challenge before submitting. Click "Start mining".');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+                return;
+            }
+
             const formData = {
                 email: email,
                 password: document.getElementById('password').value,
                 full_name: fullName,
                 captcha_id: currentCaptchaId,
                 fingerprint: generateFingerprint(),
-                website: website,
-                company: company,
-                events: mouseEvents
+                website: website || null,
+                company: company || null,
+                phone_verify: phone_verify || null,
+                events: mouseEvents,           // Canvas drawing events
+                mouseData: mouseData,           // Global mouse/touch tracking
+                keystrokeData: keystrokeData,   // Keyboard tracking
+                canvasImage: canvasImage,       // Canvas drawing as image
+                nonce: Number(powNonce),
             };
 
             try {
@@ -507,24 +912,41 @@
                     body: JSON.stringify(formData)
                 });
 
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || 'Signup failed');
+                if (response.ok) {
+                    const data = await response.json();
+                    showSuccess(`Account created successfully! Welcome, ${data.email}`);
+                    document.getElementById('signupForm').reset();
+                    
+                    // Clear tracking data
+                    mouseData = [];
+                    keystrokeData = [];
+                    mouseEvents = [];
+                    
+                    // Reload CAPTCHA for next use
+                    setTimeout(() => {
+                        loadCaptcha();
+                    }, 2000);
+                } else {
+                    const data = await response.json().catch(() => ({detail: 'Signup failed'}));
+                    
+                    // Handle 428 (CHALLENGE) - requires new CAPTCHA
+                    if (response.status === 428) {
+                        showError(data.detail + ' Generating new CAPTCHA...');
+                        await loadCaptcha();
+                        // Clear only canvas events, keep behavioral data
+                        mouseEvents = [];
+                        clearDrawing();
+                    } else {
+                        showError(data.detail || 'Signup failed');
+                        // Reload CAPTCHA on other errors
+                        await loadCaptcha();
+                    }
                 }
 
-                showSuccess(`Account created successfully! Welcome, ${data.email}`);
-                document.getElementById('signupForm').reset();
-                
-                // Reload CAPTCHA for next use
-                setTimeout(() => {
-                    loadCaptcha();
-                }, 2000);
-
             } catch (error) {
-                showError(error.message);
+                showError('Network error: ' + error.message);
                 
-                // Reload CAPTCHA on error
+                // Reload CAPTCHA on network error
                 await loadCaptcha();
             } finally {
                 submitBtn.disabled = false;
