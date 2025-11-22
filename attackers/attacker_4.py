@@ -139,7 +139,7 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
                 const btn = document.querySelector('#submitBtn');
                 return !btn.disabled;
             }
-        """)
+        """, timeout=60000)
 
         # Submit form
         await page.click('#submitBtn')

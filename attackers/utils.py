@@ -33,9 +33,6 @@ def image_processing(image_url: str) -> str:
     # quick preprocessing to improve OCR for beach/wave style captchas
     img = img.convert("L")
     img = ImageOps.autocontrast(img)
-    img = img.filter(ImageFilter.GaussianBlur(radius=1))
-    threshold = 150
-    img = img.point(lambda p: 255 if p > threshold else 0)
 
     buffered = BytesIO()
     img.save(buffered, format="PNG")
@@ -56,12 +53,8 @@ def image_processing_bytes(img_bytes: bytes) -> str:
 
     img = Image.open(BytesIO(img_bytes))
 
-    # quick preprocessing to improve OCR for beach/wave style captchas
     img = img.convert("L")
     img = ImageOps.autocontrast(img)
-    img = img.filter(ImageFilter.GaussianBlur(radius=1))
-    threshold = 150
-    img = img.point(lambda p: 255 if p > threshold else 0)
 
     buffered = BytesIO()
     img.save(buffered, format="PNG")
@@ -126,6 +119,7 @@ def extract_text_from_image_using_llm(img_base64: str, api_key: str, model: str)
     }
     print("Sending request to LLM for image text extraction...")
     response = completion(model=model, messages=messages, api_key=api_key, response_format=response_format)
+    print("Received response from LLM.", response)
     json_str = response.choices[0].message.content.strip()
     cleaned = json_str.replace('\n', '').replace('```json', '').replace('```', '')
     try:
