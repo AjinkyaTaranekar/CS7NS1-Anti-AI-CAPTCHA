@@ -385,32 +385,6 @@
             const submitBtn = document.getElementById('submitBtn');
             if (submitBtn) submitBtn.disabled = true;
 
-            // Timeout to avoid runaway mining on user devices
-            const MAX_MINE_MS = 20000; // 20 seconds
-            const MAX_AUTO_RETRIES = 2; // number of automatic retries if mining times out
-            const timeoutId = setTimeout(() => {
-                try {
-                    worker.terminate();
-                } catch (e) { /* ignore */ }
-                statusDiv.innerText = 'Mining timed out — retrying...';
-                document.getElementById('pow-progress').innerText = 'Timed out';
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = 'Retry mining';
-                }
-                if (submitBtn) submitBtn.disabled = true; // still require a nonce
-
-                // If we are auto-running hidden mining, try a couple of retries automatically
-                window.__autoMineRetries = (window.__autoMineRetries || 0) + 1;
-                if (window.__autoMineRetries <= MAX_AUTO_RETRIES) {
-                    console.debug('Mining timed out — auto-retry', window.__autoMineRetries);
-                    // small backoff before retrying
-                    setTimeout(() => startWorkerMining(), 1200 * window.__autoMineRetries);
-                } else {
-                    console.warn('Auto-mining exhausted retries, user may need to retry manually');
-                }
-            }, MAX_MINE_MS);
-
             // 3. Listen for messages FROM the worker
             worker.onmessage = function(e) {
                 if (e.data.found) {
@@ -421,7 +395,6 @@
                     const powTimeInput = document.getElementById('powTimeMs');
                     if (powTimeInput) powTimeInput.value = String(duration);
                     statusDiv.innerText = "Puzzle solved — nonce found." + e.data.nonce + ' (' + duration + 'ms)';
-                    clearTimeout(timeoutId);
                     worker.terminate(); // Kill the worker to free memory
                     // Put nonce into hidden input so it will be sent with signup
                     const powInput = document.getElementById('powNonce');
