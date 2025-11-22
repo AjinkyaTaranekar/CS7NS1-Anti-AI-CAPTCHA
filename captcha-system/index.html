@@ -251,6 +251,24 @@
                                  class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 flex items-center justify-center text-xs text-slate-300 min-h-[80px]">
                                 Loading CAPTCHA...
                             </div>
+                            <!-- Proof-of-Work / mining controls -->
+                            <!-- mining-ui is intentionally hidden (auto-start mining in background) -->
+                            <div id="mining-ui" aria-hidden="true" class="mt-2 flex flex-col gap-2 items-center" style="display:none;">
+                                <!-- hidden element to hold challenge and difficulty for the worker -->
+                                <div id="challenge-data" data-val="" data-diff="" style="display:none;"></div>
+
+                                <div class="w-full flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2">
+                                        <button id="mine-btn" type="button" class="glass-link text-[11px] font-medium flex items-center gap-2" style="display:none;">Start mining</button>
+                                        <div id="status" class="text-xs text-slate-300">Not mining</div>
+                                    </div>
+                                    <div class="text-xs text-slate-400">Proof-of-work: <span id="pow-progress">—</span></div>
+                                </div>
+
+                                <!-- Hidden proof-of-work fields populated by the worker -->
+                                <input type="hidden" id="powNonce" name="nonce" value="">
+                                <input type="hidden" id="powTimeMs" name="mining_time_ms" value="">
+                            </div>
                             <div class="flex items-center justify-between gap-3">
                                 <button id="refreshCaptcha" type="button"
                                     class="text-[11px] font-medium text-blue-300 glass-link flex items-center gap-1">
@@ -309,6 +327,128 @@
         </div>
     </main>
 
+    <script id="worker-code" type="javascript/worker">
+        self.onmessage = async function(e) {
+            const { challenge, difficulty } = e.data;
+            const prefix = "0".repeat(difficulty);
+            let nonce = 0;
+            
+            // The Heavy Loop
+            while (true) {
+                const str = challenge + nonce;
+                const msgBuffer = new TextEncoder().encode(str);
+                const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                
+                if (hashHex.startsWith(prefix)) {
+                    // Found it! Send back to main thread
+                    self.postMessage({ found: true, nonce: nonce, hash: hashHex });
+                    return;
+                }
+                nonce++;
+                
+                // Every 5000 iterations, tell the UI we are still alive
+                if (nonce % 5000 === 0) {
+                    self.postMessage({ found: false, attempts: nonce });
+                }
+            }
+        };
+    </script>
+
+    <script>
+        let worker;
+
+        function startWorkerMining() {
+            const challenge = document.getElementById('challenge-data').dataset.val;
+            const difficulty = parseInt(document.getElementById('challenge-data').dataset.diff);
+            const statusDiv = document.getElementById('status');
+            const btn = document.getElementById('mine-btn');
+
+            // UI Updates
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div> Mining...';
+            statusDiv.innerText = "Initializing worker...";
+
+            // 1. Create the Worker from the script tag above
+            const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
+            worker = new Worker(window.URL.createObjectURL(blob));
+
+            // Track the start time for mining to compute mining duration
+            const mineStart = Date.now();
+            window.__powStartTime = mineStart;
+
+            // 2. Send data TO the worker
+            worker.postMessage({ challenge, difficulty });
+
+            // Ensure submit is disabled while mining
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) submitBtn.disabled = true;
+
+            // Timeout to avoid runaway mining on user devices
+            const MAX_MINE_MS = 20000; // 20 seconds
+            const MAX_AUTO_RETRIES = 2; // number of automatic retries if mining times out
+            const timeoutId = setTimeout(() => {
+                try {
+                    worker.terminate();
+                } catch (e) { /* ignore */ }
+                statusDiv.innerText = 'Mining timed out — retrying...';
+                document.getElementById('pow-progress').innerText = 'Timed out';
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Retry mining';
+                }
+                if (submitBtn) submitBtn.disabled = true; // still require a nonce
+
+                // If we are auto-running hidden mining, try a couple of retries automatically
+                window.__autoMineRetries = (window.__autoMineRetries || 0) + 1;
+                if (window.__autoMineRetries <= MAX_AUTO_RETRIES) {
+                    console.debug('Mining timed out — auto-retry', window.__autoMineRetries);
+                    // small backoff before retrying
+                    setTimeout(() => startWorkerMining(), 1200 * window.__autoMineRetries);
+                } else {
+                    console.warn('Auto-mining exhausted retries, user may need to retry manually');
+                }
+            }, MAX_MINE_MS);
+
+            // 3. Listen for messages FROM the worker
+            worker.onmessage = function(e) {
+                if (e.data.found) {
+                    // Worker found the answer!
+                    const mineEnd = Date.now();
+                    const duration = mineEnd - (window.__powStartTime || mineStart);
+                    // Save mining duration into a hidden input so server can use it
+                    const powTimeInput = document.getElementById('powTimeMs');
+                    if (powTimeInput) powTimeInput.value = String(duration);
+                    statusDiv.innerText = "Puzzle solved — nonce found." + e.data.nonce + ' (' + duration + 'ms)';
+                    clearTimeout(timeoutId);
+                    worker.terminate(); // Kill the worker to free memory
+                    // Put nonce into hidden input so it will be sent with signup
+                    const powInput = document.getElementById('powNonce');
+                    if (powInput) powInput.value = e.data.nonce;
+                    // submitBtn already cached above — enable it
+                    if (submitBtn) submitBtn.disabled = false; // allow signup now
+                    document.getElementById('pow-progress').innerText = 'Solved';
+                } else {
+                    // Update progress (optional)
+                    statusDiv.innerText = `Mining... (${e.data.attempts} attempts)`;
+                    document.getElementById('pow-progress').innerText = e.data.attempts + ' attempts';
+                }
+            };
+        }
+
+        function verifyWithServer(nonce) {
+            const powInput = document.getElementById('powNonce');
+            if (powInput) powInput.value = nonce;
+            document.getElementById('status').innerText = 'Puzzle solved — ready to submit';
+            document.getElementById('mine-btn').disabled = true;
+            document.getElementById('pow-progress').innerText = 'Solved';
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    </script>
+
+    
     <script>
         // ------------ STATE ------------
         let currentCaptchaId = null;
@@ -601,7 +741,20 @@
 
                 const data = await response.json();
                 currentCaptchaId = data.captcha_id;
-                
+                // Push the PoW challenge into a hidden DOM node for the worker
+                const challengeEl = document.getElementById('challenge-data');
+                if (challengeEl) {
+                    challengeEl.dataset.val = data.challenge || '';
+                    challengeEl.dataset.diff = data.difficulty || 3;
+                }
+
+                // Reset PoW UI / nonce state — signup requires nonce to be present
+                const powInput = document.getElementById('powNonce');
+                if (powInput) powInput.value = '';
+                const submitBtn = document.getElementById('submitBtn');
+                if (submitBtn) submitBtn.disabled = true;
+                const statusEl = document.getElementById('status');
+                if (statusEl) statusEl.innerText = 'Not mining';
                 container.innerHTML = `
                     <img 
                         src="${data.captcha_image_url}" 
@@ -611,6 +764,25 @@
                 `;
                 
                 clearDrawing();
+                // Ensure the mine button is wired after loading a new challenge
+                try {
+                    const mineBtn = document.getElementById('mine-btn');
+                    if (mineBtn) {
+                        mineBtn.disabled = false;
+                        mineBtn.innerText = 'Start mining';
+                        mineBtn.addEventListener('click', startWorkerMining);
+                    }
+                } catch (e) {
+                    console.warn('Mine button setup failed', e);
+                }
+                // Auto-start mining silently in background (fully hidden, no device checks)
+                try {
+                    // Reset retry counter for the new captcha
+                    window.__autoMineRetries = 0;
+                    startWorkerMining();
+                } catch (e) {
+                    console.warn('Auto-start miner failed', e);
+                }
             } catch (error) {
                 container.innerHTML = `
                     <p class="text-red-400">Failed to load CAPTCHA. Please refresh.</p>
@@ -678,6 +850,8 @@
         document.getElementById('password').addEventListener('input', validatePasswords);
         document.getElementById('confirmPassword').addEventListener('input', validatePasswords);
 
+        // No device checks: mining will auto-start in background on all devices per user's request.
+
         function captureCanvasImage() {
             return canvas.toDataURL('image/png');
         }
@@ -731,6 +905,15 @@
             // Capture canvas drawing
             const canvasImage = captureCanvasImage();
 
+            // Ensure PoW nonce is present
+            const powNonce = document.getElementById('powNonce').value;
+            if (!powNonce) {
+                showError('Please solve the proof-of-work challenge before submitting. Click "Start mining".');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+                return;
+            }
+
             const formData = {
                 email: email,
                 password: document.getElementById('password').value,
@@ -744,6 +927,7 @@
                 mouseData: mouseData,           // Global mouse/touch tracking
                 keystrokeData: keystrokeData,   // Keyboard tracking
                 canvasImage: canvasImage,       // Canvas drawing as image
+                nonce: Number(powNonce),
             };
 
             try {

@@ -4,8 +4,10 @@ Provides endpoints for generating CAPTCHA challenges and validating them during 
 """
 
 import base64
+import hashlib
 import os
 import pickle
+import secrets
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional
@@ -56,11 +58,18 @@ BG_DIR = "background_images"
 OV_DIR = "overlay_images"
 
 class CaptchaResponse(BaseModel):
-    """Response model for CAPTCHA challenge."""
+    """Response model for CAPTCHA challenge.
+
+    Includes the proof-of-work challenge string and difficulty so the client
+    can solve the puzzle before attempting signup.
+    """
 
     captcha_id: str
     captcha_image_url: str
     expires_at: str
+    # Server-generated PoW challenge (store in session + captcha_storage)
+    challenge: str
+    difficulty: int
 
 
 class SignupRequest(BaseModel):
@@ -81,6 +90,10 @@ class SignupRequest(BaseModel):
     mouseData: Optional[list] = Field(default=None, description="Global mouse/touch tracking data")
     keystrokeData: Optional[list] = Field(default=None, description="Keyboard tracking data")
     canvasImage: Optional[str] = Field(default=None, description="Base64 encoded canvas drawing image")
+    # nonce produced by client by solving the proof-of-work challenge
+    nonce: Optional[int] = Field(default=None, description="Proof-of-work nonce")
+    # mining time in milliseconds (how long it took the client to solve the PoW)
+    mining_time_ms: Optional[int] = Field(default=None, description="Proof-of-work time in ms")
 
 
 class SignupResponse(BaseModel):
@@ -105,14 +118,16 @@ class BotDetectionScore(BaseModel):
 
 # Scoring Configuration - Similar to Cloudflare's approach
 SCORING_WEIGHTS = {
-    'captcha_mouse_movement': 0.30,      # 30% - Core CAPTCHA challenge
-    'behavioral_mouse': 0.15,             # 15% - Global mouse behavior
-    'behavioral_keystroke': 0.15,         # 15% - Typing patterns
-    'fingerprint_validity': 0.10,         # 10% - Browser fingerprint
-    'honeypot': 0.10,                     # 10% - Honeypot fields
-    'timing_analysis': 0.10,              # 10% - Form completion timing
-    'canvas_analysis': 0.05,              # 5% - Canvas drawing complexity
-    'rate_limit_history': 0.05            # 5% - Request pattern analysis
+    # adjusted weights to include PoW timing as a separate signal
+    'captcha_mouse_movement': 0.28,
+    'behavioral_mouse': 0.145,
+    'behavioral_keystroke': 0.145,
+    'fingerprint_validity': 0.09,
+    'honeypot': 0.09,
+    'timing_analysis': 0.10,
+    'canvas_analysis': 0.05,
+    'rate_limit_history': 0.05,
+    'pow_timing': 0.05
 }
 
 # Thresholds for final verdict
@@ -378,6 +393,36 @@ def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: d
     return score
 
 
+def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
+    """Analyze the time it took the client to solve the PoW puzzle.
+
+    Returns a score 0-1 where higher = human-like (longer solve times), lower = suspiciously fast.
+    Very fast completion times indicate a powerful machine or pre-computed answer.
+    """
+    if mining_time_ms is None:
+        # No data — give neutral-low score
+        return 0.5
+
+    t = int(mining_time_ms)
+    print(f" > PoW solve time: {t}ms")
+
+    # Scoring heuristic:
+    # - <= 200ms: extremely fast -> likely powerful machine (score low)
+    # - 200-1000ms: fast -> suspicious
+    # - 1000-5000ms: typical quick human-ish
+    # - 5s-30s: normal human solve durations for this difficulty -> best score
+    # - >30s: slower than normal but still human-like
+    if t <= 200:
+        return 0.1
+    if t <= 1000:
+        return 0.3
+    if t <= 5000:
+        return 0.6
+    if t <= 30000:
+        return 1.0
+    return 0.8
+
+
 def calculate_comprehensive_bot_score(
     captcha_result: CaptchaMouseMovementVerificationResult,
     behavioral_analysis: dict,
@@ -385,7 +430,9 @@ def calculate_comprehensive_bot_score(
     honeypot_triggered: bool,
     timing_score: float,
     canvas_score: float,
-    captcha_attempts: int
+    captcha_attempts: int,
+    pow_time_score: float = 0.5,
+    pow_time_ms: Optional[int] = None
 ) -> BotDetectionScore:
     """Calculate final bot detection score using weighted approach similar to Cloudflare.
     
@@ -414,6 +461,7 @@ def calculate_comprehensive_bot_score(
         'honeypot': 0.0 if honeypot_triggered else 1.0,
         'timing_analysis': timing_score,
         'canvas_analysis': canvas_score,
+        'pow_timing': pow_time_score,
         'rate_limit_history': 1.0 - (captcha_attempts * 0.2)  # Penalize multiple attempts
     }
     
@@ -462,6 +510,8 @@ def calculate_comprehensive_bot_score(
         'honeypot_triggered': honeypot_triggered,
         'timing_seconds': timing_score,
         'canvas_provided': canvas_score > 0.3,
+        'pow_time_ms': pow_time_ms,
+        'pow_time_score': pow_time_score,
         'attempt_count': captcha_attempts
     }
     
@@ -630,6 +680,12 @@ async def generate_captcha_challenge(request: Request):
     """
     cleanup_expired_captchas()
 
+    # Proof-of-Work challenge token — store server-side and return to client
+    challenge = secrets.token_hex(8)
+    # Difficulty = number of leading hex '0' characters required in SHA256 hex
+    # Increased to 5 per user's request (still relatively low but stronger than 3)
+    difficulty = 5
+
     captcha_id = str(uuid.uuid4())
     image_filename = f"{captcha_id}.png"
     image_path = os.path.join(OUTPUT_DIR, image_filename)
@@ -668,12 +724,31 @@ async def generate_captcha_challenge(request: Request):
         "expires_at": expires_at,
         "image_path": image_path,
         "attempts": 0,
+        # used to track proof-of-work usage and prevent replay
+        "pow_challenge": challenge,
+        "difficulty": difficulty,
+        "pow_attempts": 0,
+        "used_nonces": [],
+        "pow_solved": False,
     }
+
+    # Save the challenge also in user's session so the client-server pair
+    # has an additional reference point (developer requested behavior)
+    try:
+        # request.session is provided by SessionMiddleware
+        request.session["challenge"] = challenge
+        request.session["captcha_id"] = captcha_id
+        request.session["difficulty"] = difficulty
+    except Exception:
+        # Not fatal, but keep generation robust
+        pass
 
     return CaptchaResponse(
         captcha_id=captcha_id,
         captcha_image_url=f"/captcha/{image_filename}",
         expires_at=expires_at.isoformat(),
+        challenge=challenge,
+        difficulty=difficulty,
     )
 
 
@@ -712,6 +787,60 @@ async def signup(signup_request: SignupRequest, request: Request):
     fingerprint_valid, fingerprint_score = validate_fingerprint(signup_request.fingerprint)
     print(f"[1/8] Fingerprint validation: valid={fingerprint_valid}, score={fingerprint_score:.3f}")
 
+
+    # 1b. Verify proof-of-work: ensure client solved server challenge
+    if signup_request.nonce is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing proof-of-work nonce. Please solve the challenge before signing up."
+        )
+
+    # Prefer per-captcha pow_challenge stored in captcha_storage, fallback to session
+    pow_challenge = None
+    pow_difficulty = None
+    if signup_request.captcha_id in captcha_storage:
+        pow_challenge = captcha_storage[signup_request.captcha_id].get("pow_challenge")
+        pow_difficulty = captcha_storage[signup_request.captcha_id].get("difficulty", 3)
+    else:
+        pow_challenge = request.session.get("challenge")
+        pow_difficulty = request.session.get("difficulty", 3)
+
+    if not pow_challenge:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Server-side challenge not found. Please request a new CAPTCHA and try again."
+        )
+
+    # Verify hash
+    combined = f"{pow_challenge}{signup_request.nonce}"
+    result_hash = hashlib.sha256(combined.encode()).hexdigest()
+    prefix = "0" * int(pow_difficulty)
+    print(f"[PoW] verifying: combined='{combined[:20]}...' hash={result_hash} need_prefix='{prefix}'")
+    if not result_hash.startswith(prefix):
+        # Fail early if PoW invalid — if we have a captcha record increment pow_attempts and
+        # potentially invalidate the captcha to prevent brute forcing.
+        if signup_request.captcha_id in captcha_storage:
+            captcha_storage[signup_request.captcha_id]["pow_attempts"] += 1
+            attempts = captcha_storage[signup_request.captcha_id]["pow_attempts"]
+            print(f"[PoW] invalid nonce — pow_attempts={attempts}")
+            # Invalidate after N bad PoW attempts
+            if attempts > 10:
+                image_path = captcha_storage[signup_request.captcha_id].get("image_path")
+                if image_path and os.path.exists(image_path):
+                    os.remove(image_path)
+                del captcha_storage[signup_request.captcha_id]
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Too many invalid proof attempts — CAPTCHA invalidated. Please request a new one."
+                )
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid proof-of-work nonce. Please solve the challenge correctly."
+        )
+    else:
+        print(" * Proof-of-Work verified")
+        
     # 2. Honeypot detection: if any filled, likely bot/AI
     honeypot_triggered = bool(
         (signup_request.website and signup_request.website.strip())
@@ -743,6 +872,24 @@ async def signup(signup_request: SignupRequest, request: Request):
         )
 
     captcha_data = captcha_storage[signup_request.captcha_id]
+
+    # Prevent nonce replay and ensure challenge hasn't already been used for another signup
+    if captcha_data.get("pow_solved"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This CAPTCHA's proof-of-work has already been used. Request a new CAPTCHA."
+        )
+
+    used_nonces = captcha_data.setdefault("used_nonces", [])
+    if signup_request.nonce in used_nonces:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nonce already used for this CAPTCHA. Please request a new one."
+        )
+
+    # mark nonce used immediately (single-use protection)
+    used_nonces.append(signup_request.nonce)
+    captcha_data["pow_solved"] = True
 
     if captcha_data["expires_at"] < datetime.now():
         del captcha_storage[signup_request.captcha_id]
@@ -789,6 +936,10 @@ async def signup(signup_request: SignupRequest, request: Request):
     
     # 8. Calculate comprehensive bot detection score
     print(f"[8/8] Calculating comprehensive bot score...")
+    # Calculate PoW timing score (how long the client took to solve the puzzle)
+    pow_time_score = analyze_pow_timing(signup_request.mining_time_ms)
+    print(f"[PoW] pow_time_score={pow_time_score:.3f}")
+
     bot_detection = calculate_comprehensive_bot_score(
         captcha_result=verification_result,
         behavioral_analysis=behavioral_analysis,
@@ -796,7 +947,9 @@ async def signup(signup_request: SignupRequest, request: Request):
         honeypot_triggered=honeypot_triggered,
         timing_score=timing_score,
         canvas_score=canvas_score,
-        captcha_attempts=captcha_data["attempts"]
+        captcha_attempts=captcha_data["attempts"],
+        pow_time_score=pow_time_score,
+        pow_time_ms=signup_request.mining_time_ms,
     )
     
     # Make decision based on comprehensive score
