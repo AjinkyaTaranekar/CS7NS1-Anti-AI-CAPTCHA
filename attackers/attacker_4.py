@@ -1,15 +1,16 @@
 import asyncio
+import os
 import random
 from time import time
 
 from playwright.async_api import async_playwright
 from utils import (draw_captcha, extract_text_from_image_using_llm,
                    human_like_move_between, human_like_scroll,
-                   image_processing, load_symbol_mouse_data)
+                   image_processing, image_processing_bytes)
 
 
 async def attack_website(base_url: str, full_name: str, email: str, password: str,
-                         gemini_api_key: str, record_video: bool = False,
+                         api_key: str, llm_model: str, record_video: bool = False,
                          video_dir: str = 'recordings', show_browser: bool = False):
     async with async_playwright() as p:
         # If you want to see the browser while the script runs, set show_browser=True
@@ -78,18 +79,30 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         # Wait for CAPTCHA to load
         await page.wait_for_selector('#captchaContainer img', state='visible')
         
-        # Get CAPTCHA image URL
-        img_src = await page.locator('#captchaContainer img').get_attribute('src')
+        # Get CAPTCHA image and avoid making a separate HTTP request.
+        # Some captcha images are protected or require session cookies — a direct
+        # requests.get(image_url) can return 403. Instead we retrieve the image
+        # bytes directly from the browser context using Playwright.
+        img_locator = page.locator('#captchaContainer img')
+        img_src = await img_locator.get_attribute('src')
         if not img_src:
             raise RuntimeError('CAPTCHA image src not found')
-        if not img_src.startswith('http'):
-            img_src = base_url.rstrip('/') + '/' + img_src.lstrip('/')
 
-        # Extract text using Gemini via litellm
-        img_base64 = image_processing(img_src)
+        if isinstance(img_src, str) and img_src.startswith('data:'):
+            # If the img src is a data URL, decode it.
+            import base64 as _b64
+            img_base64_payload = img_src.split(',', 1)[1]
+            img_bytes = _b64.b64decode(img_base64_payload)
+        else:
+            # Element screenshot will capture the rendered image bytes in the current
+            # browser session — this bypasses cross-origin/server protection.
+            img_bytes = await img_locator.screenshot()
+
+        # Extract text using Gemini via litellm from preprocessed bytes
+        img_base64 = image_processing_bytes(img_bytes)
         print("Extracting text from CAPTCHA image using LLM...")
         llm_result = extract_text_from_image_using_llm(
-            img_base64, gemini_api_key, model="gemini/gemini-2.5-flash-lite"
+            img_base64, api_key, llm_model
         )
 
         # extract_text_from_image_using_llm now returns (captcha_text, confidence)
@@ -147,27 +160,31 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
 
 if __name__ == '__main__':
 
+    url = 'http://localhost:8000'
     user = {
         "full_name": "John Doe",
-        "email": "john.doe",
+        "email": "john.doe@example.com",
         "password": "StrongPass123!"
     }
+    api_key = os.getenv('API_KEY', 'YOUR_API_KEY_HERE')
+    llm_model = os.getenv('LLM_MODEL', 'MODEL_NAME_HERE')
+
+    print("Starting attack...")
 
     start_time = time()
-    for i in range(10):
-        print(f"\n=== Starting attack iteration {i+1} ===")
-        asyncio.run(
-            attack_website(
-                'http://localhost:8000',
-                user["full_name"] + f" {i}",
-                user["email"] + f"_{i}@example.com",
-                user["password"],
-                'AIzaSyD0gWnYFRfUXQgC2zd-RWjguXoy4WjNzrE',
-                record_video=True,
-                video_dir='attack-recordings',
-                show_browser=False,
-            )
+    asyncio.run(
+        attack_website(
+            url,
+            user["full_name"],
+            user["email"],
+            user["password"],
+            api_key,
+            llm_model,
+            record_video=True,
+            video_dir='attack-recordings',
+            show_browser=False,
         )
-        end_time = time()
-        total_duration = end_time - start_time
-        print(f"Attack iteration {i+1} took {total_duration:.2f} seconds")
+    )
+    end_time = time()
+    total_duration = end_time - start_time
+    print(f"Attack took {total_duration:.2f} seconds")
