@@ -33,9 +33,6 @@ def image_processing(image_url: str) -> str:
     # quick preprocessing to improve OCR for beach/wave style captchas
     img = img.convert("L")
     img = ImageOps.autocontrast(img)
-    img = img.filter(ImageFilter.GaussianBlur(radius=1))
-    threshold = 150
-    img = img.point(lambda p: 255 if p > threshold else 0)
 
     buffered = BytesIO()
     img.save(buffered, format="PNG")
@@ -44,7 +41,29 @@ def image_processing(image_url: str) -> str:
 
     return img_base64
 
-def extract_text_from_image_using_llm(img_base64: str, api_key: str, model: str = "gemini/gemini-1.5-flash") -> dict:
+
+def image_processing_bytes(img_bytes: bytes) -> str:
+    """Preprocess an image provided as raw bytes and return a base64 PNG string.
+
+    This is the same preprocessing logic as image_processing, but works with
+    bytes (e.g. element.screenshot() from Playwright) so callers running inside
+    a browser context can avoid re-requesting the image URL — which may be
+    protected and return 403 for direct requests.
+    """
+
+    img = Image.open(BytesIO(img_bytes))
+
+    img = img.convert("L")
+    img = ImageOps.autocontrast(img)
+
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    out_bytes = buffered.getvalue()
+    img_base64 = base64.b64encode(out_bytes).decode("utf-8")
+
+    return img_base64
+
+def extract_text_from_image_using_llm(img_base64: str, api_key: str, model: str) -> dict:
     """Extract text from an image using LLM via litellm."""
 
     from litellm import completion
@@ -100,6 +119,7 @@ def extract_text_from_image_using_llm(img_base64: str, api_key: str, model: str 
     }
     print("Sending request to LLM for image text extraction...")
     response = completion(model=model, messages=messages, api_key=api_key, response_format=response_format)
+    print("Received response from LLM.", response)
     json_str = response.choices[0].message.content.strip()
     cleaned = json_str.replace('\n', '').replace('```json', '').replace('```', '')
     try:
