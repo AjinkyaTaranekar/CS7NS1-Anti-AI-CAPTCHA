@@ -11,7 +11,8 @@ import easyocr
 import requests
 # urllib.parse not needed here
 from playwright.async_api import async_playwright
-from utils import draw_captcha, human_like_move_between, human_like_scroll
+from utils import (append_attack_result, draw_captcha, human_like_move_between,
+                   human_like_scroll)
 
 # Silenzia i log inutili / Mute logs
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -353,6 +354,55 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         # Wait for potential response
         await asyncio.sleep(2)
         print("Form submitted")
+
+        # --- Final status check using #errorMessage and #successMessage ---
+        error_text = ""
+        success_text = ""
+        captcha_id = None
+        # Try to extract captcha ID from image src or page variable
+        try:
+            if img_src:
+                # e.g. '/captcha/<id>.png' or full URL containing '/captcha/<id>.png'
+                if '/captcha/' in img_src:
+                    filename = img_src.rsplit('/', 1)[-1]
+                    if filename and '.' in filename:
+                        captcha_id = filename.rsplit('.', 1)[0]
+        except Exception:
+            captcha_id = None
+
+        if not captcha_id:
+            try:
+                # currentCaptchaId is set by the page JS when loading a challenge
+                val = await page.evaluate("typeof currentCaptchaId !== 'undefined' ? currentCaptchaId : null")
+                if val:
+                    captcha_id = val
+            except Exception:
+                captcha_id = None
+        try:
+            success_loc = page.locator('#successMessage')
+            if await success_loc.count() > 0:
+                t = await success_loc.text_content()
+                success_text = (t or "").strip()
+        except Exception:
+            pass
+
+        try:
+            error_loc = page.locator('#errorMessage')
+            if await error_loc.count() > 0:
+                t = await error_loc.text_content()
+                error_text = (t or "").strip()
+        except Exception:
+            pass
+
+        if success_text:
+            append_attack_result('attacker_1.py', True, success_text, captcha_id=captcha_id)
+            print(f"Attack result: SUCCESS — {success_text}")
+        elif error_text:
+            append_attack_result('attacker_1.py', False, error_text, captcha_id=captcha_id)
+            print(f"Attack result: FAILURE — {error_text}")
+        else:
+            append_attack_result('attacker_1.py', False, 'no status message', captcha_id=captcha_id)
+            print("Attack result: UNKNOWN — no status messages found")
 
         await asyncio.sleep(2)
         

@@ -1,8 +1,10 @@
 import asyncio
 import base64
+import csv
 import json
 import os
 import random
+from datetime import datetime
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -128,6 +130,67 @@ def extract_text_from_image_using_llm(img_base64: str, api_key: str, model: str)
     except json.JSONDecodeError:
         print("Failed to parse JSON from LLM response")
         return {"captcha": "", "confidence": 0}
+
+
+def append_attack_result(attacker: str, success: bool, message: str = "", csv_path: Optional[str] = None, captcha_id: Optional[str] = None) -> None:
+    """Append a single attack result to a CSV file.
+
+    Fields written: timestamp (ISO), attacker (string), success (True/False), message (string)
+
+    By default the CSV is placed next to this utils.py file as 'attack_results.csv'.
+    The function creates the CSV with a header if it doesn't exist yet.
+    """
+    if csv_path is None:
+        csv_path = os.path.join(os.path.dirname(__file__), "attack_results.csv")
+
+    # If file doesn't exist we will write a header. If it exists, ensure it contains our new column
+    write_header = not os.path.exists(csv_path)
+    # If file exists but header doesn't include captcha_id, rewrite file with expanded header
+    if not write_header:
+        try:
+            with open(csv_path, "r", encoding="utf-8", newline='') as fh:
+                reader = csv.reader(fh)
+                existing_header = next(reader, [])
+            if "captcha_id" not in existing_header:
+                # Read all existing rows, then rewrite with new header (adds empty captcha_id values)
+                with open(csv_path, "r", encoding="utf-8", newline='') as fh:
+                    old_reader = csv.DictReader(fh)
+                    rows = list(old_reader)
+
+                new_fieldnames = ["timestamp", "attacker", "success", "message", "captcha_id"]
+                try:
+                    # Overwrite file with a new header and copy old rows padding captcha_id
+                    with open(csv_path, "w", encoding="utf-8", newline='') as out_fh:
+                        writer = csv.DictWriter(out_fh, fieldnames=new_fieldnames)
+                        writer.writeheader()
+                        for r in rows:
+                            r = dict(r)
+                            r.setdefault("captcha_id", "")
+                            writer.writerow(r)
+                except Exception:
+                    # If rewrite fails, fall back to appending with new columns (best-effort)
+                    pass
+        except Exception:
+            # If anything goes wrong reading the old file, we'll just append rows — no fatal error
+            pass
+
+    row = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "attacker": attacker,
+        "success": bool(success),
+        "message": message,
+        "captcha_id": (captcha_id or ""),
+    }
+
+    try:
+        with open(csv_path, "a", newline='', encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=["timestamp", "attacker", "success", "message", "captcha_id"]) 
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+    except Exception as e:
+        # Fail quietly but print a message for debugging
+        print(f"Failed to append attack result to {csv_path}: {e}")
 
 
 
