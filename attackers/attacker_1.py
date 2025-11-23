@@ -303,12 +303,40 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         # Wait for CAPTCHA to load
         await page.wait_for_selector('#captchaContainer img', state='visible')
         
-        # Get CAPTCHA image URL
-        img_src = await page.locator('#captchaContainer img').get_attribute('src')
+        # Get CAPTCHA image — capture bytes in-page to avoid a separate HTTP request
+        img_locator = page.locator('#captchaContainer img')
+        img_src = await img_locator.get_attribute('src')
         if not img_src:
             raise RuntimeError('CAPTCHA image src not found')
-        if not img_src.startswith('http'):
-            img_src = base_url.rstrip('/') + '/' + img_src.lstrip('/')
+
+        # create a temporary file to hold the image bytes and pass to solve_captcha
+        tmp_file = None
+        path_for_solver = None
+        # If src is a data URI, decode it directly
+        if isinstance(img_src, str) and img_src.startswith('data:image'):
+            header, b64 = img_src.split(',', 1)
+            try:
+                data = base64.b64decode(b64)
+            except Exception:
+                raise RuntimeError('Failed to decode data URI')
+            fd, tmp_file = tempfile.mkstemp(suffix='.png')
+            with os.fdopen(fd, 'wb') as f:
+                f.write(data)
+            path_for_solver = tmp_file
+        else:
+            # Prefer element screenshot to capture the image bytes directly from the current browser context
+            try:
+                img_bytes = await img_locator.screenshot()
+            except Exception:
+                # Fall back to constructing a URL if screenshot isn't possible
+                if not img_src.startswith('http'):
+                    img_src = base_url.rstrip('/') + '/' + img_src.lstrip('/')
+                path_for_solver = img_src
+            else:
+                fd, tmp_file = tempfile.mkstemp(suffix='.png')
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(img_bytes)
+                path_for_solver = tmp_file
 
         # Create or reuse an easyocr reader and pass to the solver.
         # Creating the reader is somewhat expensive so we do it only when needed.
@@ -317,7 +345,14 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         except Exception:
             reader = None
 
-        captcha_text = solve_captcha(img_src, reader)
+        captcha_text = solve_captcha(path_for_solver, reader)
+
+        # remove the local temp file we created (solve_captcha may also cleanup its own temp)
+        if tmp_file:
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
 
         
         print(f"Extracted CAPTCHA text: {captcha_text}")
