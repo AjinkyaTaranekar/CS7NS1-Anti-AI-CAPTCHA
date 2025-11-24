@@ -216,3 +216,5 @@ attackers/attack-recordings/
 attackers/__pycache__/
 attackers/*.log
 attackers/.env
+
+dataset/
