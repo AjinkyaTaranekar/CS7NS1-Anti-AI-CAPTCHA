@@ -9,19 +9,19 @@ from tensorflow.keras import layers
 # ==========================================
 # CONFIGURATION / CONFIGURAZIONE
 # ==========================================
-BATCH_SIZE = 32
-IMG_WIDTH = 128
-IMG_HEIGHT = 64
-EPOCHS = 50
-MAX_LENGTH = 5
-DATA_DIR = "./dataset"
+BATCH_SIZE = 32      
+IMG_WIDTH = 420      
+IMG_HEIGHT = 220      
+EPOCHS = 200         # Aumentato perché la rete è più grande / Increased as network is bigger
+MAX_LENGTH = 5       
+DATA_DIR = "./dataset" 
 CHECKPOINT_DIR = "./checkpoints"
 
-# Crea cartella checkpoint
+# Crea cartella checkpoint / Create checkpoint folder
 if not os.path.exists(CHECKPOINT_DIR):
     os.makedirs(CHECKPOINT_DIR)
 
-# Vocabolario
+# Vocabolario / Vocabulary
 characters = sorted(list("abcdefghijklmnopqrstuvwxyz0123456789"))
 char_to_num = layers.StringLookup(vocabulary=list(characters), mask_token=None)
 num_to_char = layers.StringLookup(vocabulary=char_to_num.get_vocabulary(), mask_token=None, invert=True)
@@ -43,17 +43,16 @@ def split_data(images, labels, train_size=0.9, shuffle=True):
 
 def encode_single_sample(img_path, label):
     img = tf.io.read_file(img_path)
-    
-    # --- USIAMO 3 CANALI (RGB) INVECE DI 1 ---
-    # --- USE 3 CHANNELS (RGB) INSTEAD OF 1 ---
-    img = tf.io.decode_png(img, channels=3) 
-    
+    # IMPORTANTE: 3 Canali (RGB) per vedere i colori
+    # IMPORTANT: 3 Channels (RGB) to see colors
+    img = tf.io.decode_png(img, channels=3)
     img = tf.image.convert_image_dtype(img, tf.float32)
     img = tf.image.resize(img, [IMG_HEIGHT, IMG_WIDTH])
     img = tf.transpose(img, perm=[1, 0, 2])
     label = char_to_num(tf.strings.unicode_split(label, input_encoding="UTF-8"))
     return {"image": img, "label": label}
 
+# Caricamento file / Load files
 images = sorted(list(map(str, list(Path(DATA_DIR).glob("*.png")))))
 labels = [img.split(os.path.sep)[-1].split("_")[0] for img in images]
 
@@ -80,7 +79,7 @@ validation_dataset = (
 )
 
 # ==========================================
-# MODEL ARCHITECTURE
+# MODEL ARCHITECTURE (HEAVY VERSION)
 # ==========================================
 class CTCLayer(layers.Layer):
     def __init__(self, name=None):
@@ -98,34 +97,58 @@ class CTCLayer(layers.Layer):
         return y_pred
 
 def build_models():
-    # --- INPUT SHAPE HA 3 CANALI ---
-    # --- INPUT SHAPE HAS 3 CHANNELS ---
+    # Input RGB (3 channels)
     input_img = layers.Input(shape=(IMG_WIDTH, IMG_HEIGHT, 3), name="image", dtype="float32")
     labels = layers.Input(name="label", shape=(None,), dtype="float32")
 
-    x = layers.Conv2D(32, (3, 3), activation="relu", padding="same", name="Conv1")(input_img)
+    # --- CNN POTENZIATA / BOOSTED CNN ---
+    
+    # Block 1
+    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same", name="Conv1")(input_img)
+    x = layers.BatchNormalization()(x) # Stabilizza l'apprendimento / Stabilizes learning
     x = layers.MaxPooling2D((2, 2), name="pool1")(x)
-    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same", name="Conv2")(x)
+    
+    # Block 2
+    x = layers.Conv2D(128, (3, 3), activation="relu", padding="same", name="Conv2")(x)
+    x = layers.BatchNormalization()(x)
     x = layers.MaxPooling2D((2, 2), name="pool2")(x)
 
-    new_shape = ((IMG_WIDTH // 4), (IMG_HEIGHT // 4) * 64)
+    # Block 3 (Nuovo / New)
+    # Serve per capire feature complesse come fiori sovrapposti
+    # Needed to understand complex features like overlapping flowers
+    x = layers.Conv2D(256, (3, 3), activation="relu", padding="same", name="Conv3")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPooling2D((2, 2), name="pool3")(x)
+
+    # Reshape dinamico
+    # Dopo 3 pooling, le dimensioni W e H sono divise per 8 (2*2*2)
+    # After 3 poolings, dimensions are divided by 8
+    new_shape = ((IMG_WIDTH // 8), (IMG_HEIGHT // 8) * 256)
     x = layers.Reshape(target_shape=new_shape, name="reshape")(x)
-    x = layers.Dense(64, activation="relu", name="dense1")(x)
-    x = layers.Dropout(0.2)(x)
+    
+    # Dense layer per mescolare le feature prima della RNN
+    # Dense layer to mix features before RNN
+    x = layers.Dense(128, activation="relu", name="dense1")(x)
+    x = layers.Dropout(0.3)(x)
 
-    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True, dropout=0.25))(x)
-    x = layers.Bidirectional(layers.LSTM(64, return_sequences=True, dropout=0.25))(x)
+    # --- RNN (Più profonda / Deeper) ---
+    x = layers.Bidirectional(layers.LSTM(256, return_sequences=True, dropout=0.3))(x)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True, dropout=0.3))(x)
 
+    # Output
     x = layers.Dense(len(char_to_num.get_vocabulary()) + 1, activation="softmax", name="dense2")(x)
 
+    # Training Model
     output_loss = CTCLayer(name="ctc_loss")(labels, x)
     training_model = keras.models.Model(
         inputs=[input_img, labels], outputs=output_loss, name="ocr_training"
     )
     
+    # Optimizer
     opt = keras.optimizers.Adam(learning_rate=0.001)
     training_model.compile(optimizer=opt)
 
+    # Prediction Model
     prediction_model = keras.models.Model(
         inputs=input_img, outputs=x, name="ocr_prediction"
     )
@@ -146,6 +169,9 @@ class CheckpointSaver(keras.callbacks.Callback):
             print(f"\nSaving checkpoint: {filename}")
             self.pred_model.save(filename)
 
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
 model, prediction_model = build_models()
 model.summary()
 
@@ -156,10 +182,10 @@ early_stopping = keras.callbacks.EarlyStopping(
 checkpoint_saver = CheckpointSaver(prediction_model, interval=5)
 
 reduce_lr = keras.callbacks.ReduceLROnPlateau(
-    monitor='val_loss', factor=0.2, patience=2, min_lr=1e-6, verbose=1
+    monitor='val_loss', factor=0.2, patience=3, min_lr=1e-6, verbose=1
 )
 
-print("Starting training (RGB Mode)...")
+print("Starting training (RGB + Heavy Model)...")
 history = model.fit(
     train_dataset,
     validation_data=validation_dataset,

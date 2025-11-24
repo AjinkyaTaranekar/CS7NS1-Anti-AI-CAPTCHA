@@ -15,7 +15,7 @@ import generate
 # ==========================================
 # CONFIGURATION
 # ==========================================
-NUM_IMAGES = 50000          # How many images to generate
+NUM_IMAGES = 20000          # How many images to generate
 OUTPUT_DIR = "dataset"      # Destination folder
 IMG_WIDTH = 420             # Width
 IMG_HEIGHT = 220            # Height
@@ -81,7 +81,7 @@ def main():
     # Count available CPU cores
     num_cores = multiprocessing.cpu_count()
     # Use one less than max to avoid freezing the PC (ihih)
-    workers = max(1, num_cores - 1)
+    workers = max(1, num_cores)
 
     print(f"--- STARTING FAST DATASET GENERATION ---")
     print(f"Target: {NUM_IMAGES} images")
