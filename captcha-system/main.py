@@ -5,11 +5,13 @@ Provides endpoints for generating CAPTCHA challenges and validating them during 
 
 import base64
 import hashlib
+import logging
 import os
 import pickle
 import secrets
 import uuid
 from datetime import datetime, timedelta
+from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional
 
 import numpy as np
@@ -35,13 +37,58 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SessionMiddleware, secret_key="THE_SECRET_KEY")
 
+# --- Logging setup (persistent logs for signup attempts & captcha events) ---
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "signup_attempts.log")
+
+# Configure root logger for this module / app
+logger = logging.getLogger("captcha_system")
+logger.setLevel(logging.INFO)
+
+# Rotating file handler to avoid uncontrolled log growth
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
+
+# Add a small filter to ensure every log record gets a trace_id attribute so
+# our formatter can print a trace/correlation id even when a LoggerAdapter
+# does not supply one.
+class TraceFilter(logging.Filter):
+    def filter(self, record):
+        if not hasattr(record, 'trace_id'):
+            record.trace_id = '-'
+        return True
+
+formatter = logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] [trace=%(trace_id)s] %(message)s")
+file_handler.setFormatter(formatter)
+logger.addFilter(TraceFilter())
+logger.addHandler(file_handler)
+
+# Also keep a console-friendly handler so devs still see messages while running
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+logger.info("Starting CAPTCHA service — configuring logging and model load")
+
+
+def get_trace_logger(trace_id: Optional[str]):
+    """Return a LoggerAdapter that attaches a trace_id to each LogRecord.
+
+    Use this where you know a captcha_id (or other correlation id) and want
+    to include it in subsequent log messages so they can be correlated.
+    """
+    return logging.LoggerAdapter(logger, {"trace_id": trace_id if trace_id else '-'})
+
+# Print still there for backwards compatibility (keeps tests/examples unchanged)
 print("Loading Model...")
 try:
     with open(f"captcha_mouse_movement_prediction/models/{MOUSE_MOVEMENT_MODEL}", "rb") as f:
         HUMAN_MODEL = pickle.load(f)
 
+    logger.info("Model loaded successfully: %s", MOUSE_MOVEMENT_MODEL)
     print(" > Model loaded successfully.")
 except FileNotFoundError:
+    logger.warning("Model file not found: %s — run train_model.py to create model", MOUSE_MOVEMENT_MODEL)
     print(" ! ERROR: Model not found. Run train_model.py first.")
     HUMAN_MODEL = None
 
@@ -177,7 +224,7 @@ def validate_fingerprint(fingerprint: str):
     Returns:
         Tuple of (is_valid, score) where score is 0-1 (1=human-like, 0=bot-like)
     """
-    print(f"Validating fingerprint: {fingerprint}")
+    logger.debug("Validating fingerprint: %s", hashlib.sha1(fingerprint.encode()).hexdigest() if fingerprint else None)
     score = 0.5  # Neutral starting point
     
     if not fingerprint or len(fingerprint) < 24:
@@ -211,6 +258,7 @@ def validate_fingerprint(fingerprint: str):
     score = max(0.0, min(1.0, score))
     is_valid = score >= 0.3
     
+    logger.info("Fingerprint validation result: is_valid=%s score=%.3f for fp_len=%d", is_valid, score, len(fingerprint) if fingerprint else 0)
     return is_valid, score
 
 
@@ -225,7 +273,7 @@ def analyze_behavioral_data(mouse_data: Optional[list],
     Returns:
         Dictionary with mouse_score, keystroke_score (0-1), and detailed metrics
     """
-    print("\n[Behavioral Analysis] Starting server-side analysis...")
+    logger.debug("[Behavioral Analysis] Starting server-side analysis for mouse events=%d keystroke_events=%d", len(mouse_data) if mouse_data else 0, len(keystroke_data) if keystroke_data else 0)
     
     bot_indicators = []
     human_indicators = []
@@ -298,9 +346,8 @@ def analyze_behavioral_data(mouse_data: Optional[list],
     # Normalize score to 0-1 range (0=bot, 1=human)
     final_score = max(0, min(100, final_score)) / 100.0
     
-    print(f"\n[Behavioral Analysis] Behavioral Score: {final_score:.3f}")
-    print(f" > Bot indicators: {bot_indicators}")
-    print(f" > Human indicators: {human_indicators}")
+    logger.info("[Behavioral Analysis] Behavioral Score: %.3f", final_score)
+    logger.debug("[Behavioral Analysis] Bot indicators=%s Human indicators=%s data_quality=%s", bot_indicators, human_indicators, {'mouse_events': len(mouse_data) if mouse_data else 0, 'keystroke_events': len(keystroke_data) if keystroke_data else 0})
     
     # Split into mouse and keystroke scores for weighted system
     mouse_score = 0.5
@@ -333,6 +380,7 @@ def analyze_canvas_complexity(canvas_image: Optional[str]) -> float:
         Score from 0-1 (1=complex/human-like, 0=simple/bot-like)
     """
     if not canvas_image or not canvas_image.startswith('data:image'):
+        logger.debug("Canvas not provided or invalid format -> returning neutral-low score")
         return 0.3  # Neutral-low score if no canvas data
     
     try:
@@ -354,10 +402,10 @@ def analyze_canvas_complexity(canvas_image: Optional[str]) -> float:
         else:
             score = 1.0  # Very complex
         
-        print(f" > Canvas complexity: {data_length} chars -> score: {score:.3f}")
+        logger.info("Canvas complexity: %d chars -> score: %.3f", data_length, score)
         return score
     except Exception as e:
-        print(f" ! Canvas analysis error: {e}")
+        logger.exception("Canvas analysis error")
         return 0.3
 
 
@@ -376,7 +424,7 @@ def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: d
     # Check form completion time
     time_to_complete = (datetime.now() - captcha_created_at).total_seconds()
     
-    print(f" > Form completion time: {time_to_complete:.1f}s")
+    logger.debug("Form completion time: %.1fs since captcha creation", time_to_complete)
     
     # Humans typically take 10-120 seconds to complete CAPTCHA + form
     if time_to_complete < 3:
@@ -404,7 +452,7 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
         return 0.5
 
     t = int(mining_time_ms)
-    print(f" > PoW solve time: {t}ms")
+    logger.debug("PoW solve time: %dms", t)
 
     # Scoring heuristic:
     # - <= 200ms: extremely fast -> likely powerful machine (score low)
@@ -448,9 +496,7 @@ def calculate_comprehensive_bot_score(
     Returns:
         BotDetectionScore with comprehensive analysis
     """
-    print("\n" + "="*80)
-    print("[COMPREHENSIVE BOT DETECTION] Calculating Final Score")
-    print("="*80)
+    logger.info("[COMPREHENSIVE BOT DETECTION] Calculating final score for captcha attempts=%d", captcha_attempts)
     
     # Individual component scores (0-1, where 1=human, 0=bot)
     individual_scores = {
@@ -469,8 +515,7 @@ def calculate_comprehensive_bot_score(
     weighted_scores = {}
     total_weighted_score = 0.0
     
-    print("\nIndividual Component Scores:")
-    print("-" * 80)
+    logger.debug("Individual component scores: %s", individual_scores)
     
     for component, score in individual_scores.items():
         weight = SCORING_WEIGHTS.get(component, 0.0)
@@ -480,8 +525,7 @@ def calculate_comprehensive_bot_score(
         
         print(f"{component:30s}: {score:.3f} × {weight:.2f} = {weighted_contribution:.4f}")
     
-    print("-" * 80)
-    print(f"{'FINAL WEIGHTED SCORE':30s}: {total_weighted_score:.4f}")
+    logger.info("FINAL WEIGHTED SCORE: %.4f", total_weighted_score)
     
     # Determine verdict based on thresholds
     if total_weighted_score >= THRESHOLD_HUMAN:
@@ -515,10 +559,9 @@ def calculate_comprehensive_bot_score(
         'attempt_count': captcha_attempts
     }
     
-    print(f"\n{'VERDICT':30s}: {verdict} (confidence: {confidence})")
-    print(f"{'RECOMMENDATION':30s}: {recommendation}")
-    print("="*80 + "\n")
+    logger.info("VERDICT: %s (confidence: %s) RECOMMENDATION: %s", verdict, confidence, recommendation)
     
+    logger.debug("Signals: %s", signals)
     return BotDetectionScore(
         final_score=total_weighted_score,
         verdict=verdict,
@@ -563,7 +606,7 @@ def save_canvas_image(canvas_image: str, captcha_id: str) -> Optional[str]:
         return None
 
 
-def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMovementVerificationResult:
+def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional[str] = None) -> CaptchaMouseMovementVerificationResult:
     """Verify CAPTCHA based on mouse movement patterns.
     
     Args:
@@ -573,7 +616,8 @@ def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMov
     Returns:
         CaptchaMouseMovementVerificationResult with success status and message
     """
-    print(f"\n[Verify] Processing verification for code: {expected_code}")
+    tlog = get_trace_logger(trace_id)
+    tlog.info("[Verify] Processing verification for expected_code=%s", expected_code)
     
     # 1. Reconstruct Strokes from Events
     strokes_raw = []
@@ -598,7 +642,7 @@ def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMov
         strokes_raw.append(current_stroke)
     
     if not strokes_raw:
-        print(" ! No strokes detected")
+        tlog.warning("No strokes detected in submitted events")
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Please draw the characters."
@@ -627,19 +671,19 @@ def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMov
             # Class 1 is Human
             prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
             human_scores.append(prob_human)
-            print(f"   > Char {i}: Human Probability = {prob_human:.4f}")
+            tlog.debug("Char %d human probability=%.4f", i, prob_human)
     
-    print(f" > Recognition Result: '{recognized_str}' vs '{expected_code}'")
+    tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
     
     # 4. Final Decision Logic
     # Use the average human score across all characters and if 50% characters pass
     avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0
     passed_chars = sum(1 for score in human_scores if score >= 0.5) / len(human_scores) if human_scores else 0
     
-    print(f" > Average Human Score: {avg_human_score:.4f}, Passed Characters: {passed_chars:.2%}")
+    tlog.info("Average human score=%.4f passed_chars_ratio=%.2f", avg_human_score, passed_chars)
     # Strict threshold for bot detection
     if avg_human_score < 0.5 or passed_chars < 0.5:
-        print(" ! Result: BOT DETECTED")
+        tlog.warning("Result: BOT DETECTED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Automated movement detected.",
@@ -647,14 +691,14 @@ def verify_captcha_movement(events: list, expected_code: str) -> CaptchaMouseMov
         )
     
     if 0.5 <= avg_human_score < 0.65:
-        print(" ! Result: BORDERLINE")
+        tlog.warning("Result: BORDERLINE avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Movement too smooth. Try again.",
             human_score=avg_human_score
         )
     
-    print(" * Result: VERIFIED")
+    tlog.info("Result: VERIFIED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
     return CaptchaMouseMovementVerificationResult(
         success=True,
         message="Human Verified!",
@@ -733,6 +777,9 @@ async def generate_captcha_challenge(request: Request):
         "pow_solved": False,
     }
 
+    tlog = get_trace_logger(captcha_id)
+    tlog.info("CAPTCHA generated: id=%s text_len=%d expires_at=%s image=%s", captcha_id, len(captcha_text), expires_at.isoformat(), image_path)
+
     # Save the challenge also in user's session so the client-server pair
     # has an additional reference point (developer requested behavior)
     try:
@@ -775,6 +822,8 @@ async def get_captcha_image(filename: str):
     
     # Mark the CAPTCHA as shown to the user
     captcha_storage[captcha_id]["shown_to_user"] = True
+    tlog = get_trace_logger(captcha_id)
+    tlog.info("CAPTCHA image served: id=%s filename=%s", captcha_id, filename)
 
     file_path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(file_path):
@@ -804,9 +853,13 @@ async def signup(signup_request: SignupRequest, request: Request):
     cleanup_expired_captchas()
     cleanup_expired_fingerprints()
 
+    # Establish trace logger (use captcha_id as trace/correlation id) — signup_request.captcha_id required in schema
+    trace_id = getattr(signup_request, 'captcha_id', None)
+    tlog = get_trace_logger(trace_id)
+
     # 1. Validate browser fingerprint
     fingerprint_valid, fingerprint_score = validate_fingerprint(signup_request.fingerprint)
-    print(f"[1/8] Fingerprint validation: valid={fingerprint_valid}, score={fingerprint_score:.3f}")
+    tlog.info("[1/8] Fingerprint validation: valid=%s score=%.3f for fp_hash=%s", fingerprint_valid, fingerprint_score, hashlib.sha1(signup_request.fingerprint.encode()).hexdigest() if signup_request.fingerprint else None)
 
 
     # 1b. Verify proof-of-work: ensure client solved server challenge
@@ -836,14 +889,14 @@ async def signup(signup_request: SignupRequest, request: Request):
     combined = f"{pow_challenge}{signup_request.nonce}"
     result_hash = hashlib.sha256(combined.encode()).hexdigest()
     prefix = "0" * int(pow_difficulty)
-    print(f"[PoW] verifying: combined='{combined[:20]}...' hash={result_hash} need_prefix='{prefix}'")
+    tlog.info("[PoW] verifying: combined_prefix=%s hash=%s need_prefix=%s", combined[:20], result_hash, prefix)
     if not result_hash.startswith(prefix):
         # Fail early if PoW invalid — if we have a captcha record increment pow_attempts and
         # potentially invalidate the captcha to prevent brute forcing.
         if signup_request.captcha_id in captcha_storage:
             captcha_storage[signup_request.captcha_id]["pow_attempts"] += 1
             attempts = captcha_storage[signup_request.captcha_id]["pow_attempts"]
-            print(f"[PoW] invalid nonce — pow_attempts={attempts}")
+            tlog.warning("[PoW] invalid nonce — pow_attempts=%d", attempts)
             # Invalidate after N bad PoW attempts
             if attempts > 10:
                 image_path = captcha_storage[signup_request.captcha_id].get("image_path")
@@ -855,12 +908,13 @@ async def signup(signup_request: SignupRequest, request: Request):
                     detail="Too many invalid proof attempts — CAPTCHA invalidated. Please request a new one."
                 )
 
+        tlog.warning("[PoW] invalid nonce nonce=%s", signup_request.nonce)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid proof-of-work nonce. Please solve the challenge correctly."
         )
     else:
-        print(" * Proof-of-Work verified")
+        tlog.info("* Proof-of-Work verified nonce=%s", signup_request.nonce)
         
     # 2. Honeypot detection: if any filled, likely bot/AI
     honeypot_triggered = bool(
@@ -868,7 +922,7 @@ async def signup(signup_request: SignupRequest, request: Request):
         or (signup_request.company and signup_request.company.strip())
         or (signup_request.phone_verify and signup_request.phone_verify.strip())
     )
-    print(f"[2/8] Honeypot check: triggered={honeypot_triggered}")
+    tlog.info("[2/8] Honeypot check: triggered=%s email=%s", honeypot_triggered, signup_request.email)
 
     # Password complexity enforcement (server-side)
     pw = signup_request.password
@@ -877,6 +931,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     has_digit = any(c.isdigit() for c in pw)
     has_symbol = any(not c.isalnum() and not c.isspace() for c in pw)
     if not (len(pw) >= 8 and has_upper and has_lower and has_digit and has_symbol):
+        tlog.warning("Password complexity violation for email=%s has_upper=%s has_lower=%s has_digit=%s has_symbol=%s len=%d", signup_request.email, has_upper, has_lower, has_digit, has_symbol, len(pw))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -887,6 +942,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     # 3. Check CAPTCHA validity
     if signup_request.captcha_id not in captcha_storage:
+        tlog.warning("Invalid or expired CAPTCHA id provided for email=%s", signup_request.email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired CAPTCHA ID",
@@ -896,6 +952,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     # Prevent nonce replay and ensure challenge hasn't already been used for another signup
     if captcha_data.get("pow_solved"):
+        tlog.warning("Replay attack: proof-of-work already used")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This CAPTCHA's proof-of-work has already been used. Request a new CAPTCHA."
@@ -903,6 +960,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     used_nonces = captcha_data.setdefault("used_nonces", [])
     if signup_request.nonce in used_nonces:
+        tlog.warning("Nonce already used nonce=%s", signup_request.nonce)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nonce already used for this CAPTCHA. Please request a new one."
@@ -920,12 +978,13 @@ async def signup(signup_request: SignupRequest, request: Request):
         )
 
     captcha_data["attempts"] += 1
-    print(f"[3/8] CAPTCHA attempt #{captcha_data['attempts']}")
+    tlog.info("[3/8] CAPTCHA attempt #%d email=%s", captcha_data['attempts'], signup_request.email)
 
     if captcha_data["attempts"] > 3:
         image_path = captcha_data.get("image_path")
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
+            tlog.info("Removed CAPTCHA image due to too many attempts: %s", image_path)
         del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -933,33 +992,34 @@ async def signup(signup_request: SignupRequest, request: Request):
         )
 
     # 4. Verify CAPTCHA mouse movement patterns
-    print(f"[4/8] Verifying CAPTCHA mouse movements...")
+    tlog.info("[4/8] Verifying CAPTCHA mouse movements")
     verification_result = verify_captcha_movement(
         events=signup_request.events,
-        expected_code=captcha_data["text"]
+        expected_code=captcha_data["text"],
+        trace_id=trace_id
     )
     
     # 5. Analyze behavioral data (mouse & keystroke)
-    print(f"[5/8] Analyzing behavioral patterns...")
+    tlog.info("[5/8] Analyzing behavioral patterns for email=%s", signup_request.email)
     behavioral_analysis = analyze_behavioral_data(
         mouse_data=signup_request.mouseData,
         keystroke_data=signup_request.keystrokeData
     )
     
     # 6. Analyze canvas drawing complexity
-    print(f"[6/8] Analyzing canvas complexity...")
+    tlog.info("[6/8] Analyzing canvas complexity",)
     canvas_score = analyze_canvas_complexity(signup_request.canvasImage)
     
     # 7. Analyze timing patterns
-    print(f"[7/8] Analyzing timing patterns...")
+    tlog.info("[7/8] Analyzing timing patterns")
     captcha_created_at = captcha_data.get("created_at", datetime.now() - timedelta(minutes=1))
     timing_score = analyze_timing_patterns(signup_request, captcha_created_at)
     
     # 8. Calculate comprehensive bot detection score
-    print(f"[8/8] Calculating comprehensive bot score...")
+    tlog.info("[8/8] Calculating comprehensive bot score for email=%s", signup_request.email)
     # Calculate PoW timing score (how long the client took to solve the puzzle)
     pow_time_score = analyze_pow_timing(signup_request.mining_time_ms)
-    print(f"[PoW] pow_time_score={pow_time_score:.3f}")
+    tlog.info("[PoW] pow_time_score=%0.3f ms=%s", pow_time_score, signup_request.mining_time_ms)
 
     bot_detection = calculate_comprehensive_bot_score(
         captcha_result=verification_result,
@@ -974,17 +1034,22 @@ async def signup(signup_request: SignupRequest, request: Request):
     )
     
     # Make decision based on comprehensive score
+    tlog.info("Bot detection result: score=%0.3f verdict=%s recommendation=%s", bot_detection.final_score, bot_detection.verdict, bot_detection.recommendation)
+
     if bot_detection.recommendation == "BLOCK":
+        tlog.warning("Blocking signup: bot detected score=%0.3f", bot_detection.final_score)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Bot detected (score: {bot_detection.final_score:.3f}). Access denied."
         )
     elif bot_detection.recommendation == "BLOCK_SOFT":
+        tlog.warning("Soft-block: suspicious score=%0.3f", bot_detection.final_score)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suspicious activity detected. Please try again with natural interactions."
         )
     elif bot_detection.recommendation == "CHALLENGE":
+        tlog.warning("Additional challenge required: score=%0.3f", bot_detection.final_score)
         # Issue additional challenge - frontend will generate new CAPTCHA
         print(f" ⚠ CHALLENGE: Suspicious score {bot_detection.final_score:.3f} - requiring additional verification")
         # Clean up current CAPTCHA before issuing new one
@@ -1004,6 +1069,8 @@ async def signup(signup_request: SignupRequest, request: Request):
             signup_request.canvasImage, 
             signup_request.captcha_id
         )
+        if canvas_image_path:
+            tlog.info("Canvas drawing saved path=%s", canvas_image_path)
     
     # TODO: Add character recognition model here
     # For now, we assume all characters are recognized correctly
@@ -1016,6 +1083,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     # Check if email already exists
     if signup_request.email in user_database:
+        tlog.warning("Duplicate registration attempt for email=%s", signup_request.email)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
@@ -1038,6 +1106,8 @@ async def signup(signup_request: SignupRequest, request: Request):
         "canvas_image_path": canvas_image_path
     }
 
+    tlog.info("User registered: email=%s user_id=%s final_score=%0.3f verdict=%s", signup_request.email, user_id, bot_detection.final_score, bot_detection.verdict)
+
     # Store fingerprint with timestamp
     fingerprint_cache[signup_request.fingerprint] = datetime.now()
 
@@ -1045,6 +1115,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     image_path = captcha_data.get("image_path")
     if image_path and os.path.exists(image_path):
         os.remove(image_path)
+        tlog.info("Removed CAPTCHA image after successful registration: %s", image_path)
     del captcha_storage[signup_request.captcha_id]
 
     return SignupResponse(
@@ -1060,6 +1131,52 @@ async def health_check():
         "active_captchas": len(captcha_storage),
         "registered_users": len(user_database),
     }
+
+
+@app.get("/api/logs/recent")
+async def recent_logs(request: Request, lines: int = 200):
+    """Return the last N lines of the persistent signup_attempts log.
+
+    Security: requires X-Admin-Token header to match environment variable LOG_ACCESS_TOKEN.
+    If LOG_ACCESS_TOKEN is not set, access is denied to avoid unintended exposure.
+    """
+    token = os.environ.get("LOG_ACCESS_TOKEN")
+    header = request.headers.get("x-admin-token")
+    if not token:
+        logger.warning("Attempt to access logs but LOG_ACCESS_TOKEN not set — denying")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Log access not configured")
+
+    if token != header:
+        logger.warning("Unauthorized log access attempt from %s", request.client.host if request.client else None)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
+
+    # Efficiently read last lines
+    try:
+        with open(LOG_FILE, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            filesize = f.tell()
+            blocksize = 1024
+            data = bytearray()
+            blocks = -1
+            while len(data.splitlines()) <= lines and abs(blocks * blocksize) < filesize:
+                try:
+                    f.seek(blocks * blocksize, os.SEEK_END)
+                except OSError:
+                    f.seek(0)
+                    data = f.read()
+                    break
+                data[0:0] = f.read(blocksize)
+                blocks -= 1
+
+        content = data.decode('utf-8', errors='replace').splitlines()[-lines:]
+        logger.info("Admin fetched recent %d log lines", lines)
+        return {"lines": content}
+    except FileNotFoundError:
+        logger.warning("Log file not found when admin tried to fetch recent logs")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Log file not found")
+    except Exception as e:
+        logger.exception("Error reading recent logs: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error reading logs")
 
 
 if __name__ == "__main__":
