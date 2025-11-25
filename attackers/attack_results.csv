@@ -1,0 +1,9 @@
+timestamp,attacker,success,message,captcha_id
+2025-11-25T15:03:42.235682Z,attacker_yolo.py,False,[object Object],
+2025-11-25T15:09:17.471171Z,attacker_yolo.py,False,[object Object],
+2025-11-25T15:12:08.521219Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,
+2025-11-25T15:12:55.950206Z,attacker_yolo.py,False,Suspicious activity detected. Please try again with natural interactions.,
+2025-11-25T15:14:02.215396Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,
+2025-11-25T15:28:29.112851Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,11b58bdb-3921-40c9-a5ae-e3da0e585806
+2025-11-25T15:29:06.666428Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,1997751b-222a-478a-8c4f-0564f3291fbb
+2025-11-25T15:29:41.617198Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,c81655a5-645b-40ea-aba8-155524610e73

@@ -142,9 +142,9 @@ def main():
     for i in tqdm(range(int(NUM_IMAGES * 0.1)), desc="Val Set"):
         create_yolo_sample(bg_files, ov_files, font_files, f"val_{i}", "val")
 
-    # File YAML per YOLO (Percorso assoluto per evitare problemi)
+    # File YAML per YOLO
     abs_path = os.path.abspath(OUTPUT_DIR)
-    # Su Windows YOLO vuole gli slash normali / o doppi \\
+    # Windows
     abs_path = abs_path.replace("\\", "/") 
     
     yaml_content = f"""
