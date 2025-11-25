@@ -1,5 +1,5 @@
 
-path: D:/Desktop/Trinity/SC/CS7NS1-Anti-AI-CAPTCHA/attackers/yolo_dataset
+path: /users/pgrad/fraiolim/Desktop/CS7NS1-Anti-AI-CAPTCHA/attackers/yolo_dataset
 train: images/train
 val: images/val
 
