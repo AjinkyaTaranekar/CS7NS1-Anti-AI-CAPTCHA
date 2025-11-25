@@ -215,22 +215,24 @@ if __name__ == '__main__':
     api_key = os.getenv('API_KEY', 'YOUR_API_KEY_HERE')
     llm_model = os.getenv('LLM_MODEL', 'MODEL_NAME_HERE')
 
-    print("Starting attack...")
 
-    start_time = time()
-    asyncio.run(
-        attack_website(
-            url,
-            user["full_name"],
-            user["email"],
-            user["password"],
-            api_key,
-            llm_model,
-            record_video=True,
-            video_dir='attack-recordings',
-            show_browser=False,
+    for i in range(10):
+        print("Starting attack for the iteration:", i + 1)
+
+        start_time = time()
+        asyncio.run(
+            attack_website(
+                url,
+                user["full_name"],
+                user["email"],
+                user["password"],
+                api_key,
+                llm_model,
+                record_video=True,
+                video_dir='attack-recordings',
+                show_browser=False,
+            )
         )
-    )
-    end_time = time()
-    total_duration = end_time - start_time
-    print(f"Attack took {total_duration:.2f} seconds")
+        end_time = time()
+        total_duration = end_time - start_time
+        print(f"Attack took {total_duration:.2f} seconds for iteration {i + 1}\n")
