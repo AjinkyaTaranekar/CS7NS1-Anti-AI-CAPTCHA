@@ -217,9 +217,6 @@ def cleanup_expired_captchas():
         cid for cid, data in captcha_storage.items() if data["expires_at"] < now
     ]
     for cid in expired_ids:
-        image_path = captcha_storage[cid].get("image_path")
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
         del captcha_storage[cid]
 
 
@@ -1446,9 +1443,6 @@ async def signup(signup_request: SignupRequest, request: Request):
             tlog.warning("[PoW] invalid nonce — pow_attempts=%d", attempts)
             # Invalidate after N bad PoW attempts
             if attempts > 10:
-                image_path = captcha_storage[signup_request.captcha_id].get("image_path")
-                if image_path and os.path.exists(image_path):
-                    os.remove(image_path)
                 del captcha_storage[signup_request.captcha_id]
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1553,10 +1547,6 @@ async def signup(signup_request: SignupRequest, request: Request):
     tlog.info("[3/8] CAPTCHA attempt #%d email=%s", captcha_data['attempts'], signup_request.email)
 
     if captcha_data["attempts"] > 3:
-        image_path = captcha_data.get("image_path")
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
-            tlog.info("Removed CAPTCHA image due to too many attempts: %s", image_path)
         del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1677,10 +1667,6 @@ async def signup(signup_request: SignupRequest, request: Request):
         tlog.warning("Additional challenge required: score=%0.3f", bot_detection.final_score)
         # Issue additional challenge - frontend will generate new CAPTCHA
         print(f" ⚠ CHALLENGE: Suspicious score {bot_detection.final_score:.3f} - requiring additional verification")
-        # Clean up current CAPTCHA before issuing new one
-        image_path = captcha_data.get("image_path")
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
         del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
