@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 from playwright.async_api import async_playwright
 from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.keras import layers, models
 from utils import (append_attack_result, draw_captcha, human_like_move_between,
                    human_like_scroll)
 
@@ -27,6 +27,44 @@ MAX_LENGTH = 5
 characters = sorted(list("abcdefghijklmnopqrstuvwxyz0123456789"))
 char_to_num = layers.StringLookup(vocabulary=list(characters), mask_token=None)
 num_to_char = layers.StringLookup(vocabulary=char_to_num.get_vocabulary(), mask_token=None, invert=True)
+
+def build_prediction_model_structure():
+    """
+    Ricostruisce manualmente l'architettura per caricare i pesi.
+    """
+
+    input_img = layers.Input(shape=(IMG_WIDTH, IMG_HEIGHT, 3), name="image", dtype="float32")
+
+    # Same arch as training
+    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same", name="Conv1")(input_img)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPooling2D((2, 2), name="pool1")(x)
+    
+    x = layers.Conv2D(128, (3, 3), activation="relu", padding="same", name="Conv2")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPooling2D((2, 2), name="pool2")(x)
+
+    x = layers.Conv2D(256, (3, 3), activation="relu", padding="same", name="Conv3")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPooling2D((2, 2), name="pool3")(x)
+
+    # Reshape
+    new_shape = ((IMG_WIDTH // 8), (IMG_HEIGHT // 8) * 256)
+    x = layers.Reshape(target_shape=new_shape, name="reshape")(x)
+    
+    x = layers.Dense(128, activation="relu", name="dense1")(x)
+    x = layers.Dropout(0.3)(x)
+
+    # RNN
+    x = layers.Bidirectional(layers.LSTM(256, return_sequences=True, dropout=0.3))(x)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True, dropout=0.3))(x)
+
+    # Output
+    x = layers.Dense(len(char_to_num.get_vocabulary()) + 1, activation="softmax", name="dense2")(x)
+
+    # Creates empty model
+    model = models.Model(inputs=input_img, outputs=x, name="ocr_prediction")
+    return model
 
 def decode_batch_predictions(pred):
     """
@@ -44,6 +82,7 @@ def decode_batch_predictions(pred):
         # Converte numeri in stringa e unisce
         # Converts numbers to string and joins
         res = tf.strings.reduce_join(num_to_char(res)).numpy().decode("utf-8")
+        res = res.replace("[UNK]", " ")
         output_text.append(res)
     return output_text
 
@@ -75,12 +114,13 @@ def preprocess_image(img_path):
         return None
 
 def main():
+    """
     parser = argparse.ArgumentParser()
-    parser.add_argument("target", help="Path to image or folder")
+    # parser.add_argument("target", help="Path to image or folder")
     parser.add_argument("--model", default="best_model.h5", help="Path to model file")
     args = parser.parse_args()
     
-    path = args.target.replace('"', '').replace("'", "")
+    # path = args.target.replace('"', '').replace("'", "")
     model_path = args.model
 
     if not os.path.exists(model_path):
@@ -88,14 +128,14 @@ def main():
         return
 
     print(f"Loading model: {model_path} ...")
-    # compile=False è fondamentale per l'inferenza
-    # compile=False is critical for inference
-    model = keras.models.load_model(model_path, compile=False)
+    model = build_prediction_model_structure()
+    model.load_weights(model_path)
+
     
     images = []
     filenames = []
     true_labels = []
-    
+
     # Rilevamento file o cartella
     # Detect single file or folder
     file_list = []
@@ -164,6 +204,7 @@ def main():
         print(f" {filenames[i]:<25} | {pred:<10} | {true:<10} | {status}")
 
     print("="*65)
+    """
 
 
 async def attack_website(base_url: str, full_name: str, email: str, password: str,
@@ -180,7 +221,8 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         raise RuntimeError(f"Model not found: {model_path}")
 
     print(f"Loading model for attack: {model_path}")
-    model = keras.models.load_model(model_path, compile=False)
+    model = build_prediction_model_structure()
+    model.load_weights(model_path)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=(not show_browser))
