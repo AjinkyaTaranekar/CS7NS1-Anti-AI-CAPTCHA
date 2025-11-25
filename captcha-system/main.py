@@ -1737,10 +1737,6 @@ async def signup(signup_request: SignupRequest, request: Request):
     fingerprint_cache[signup_request.fingerprint] = datetime.now()
 
     # Clean up CAPTCHA
-    image_path = captcha_data.get("image_path")
-    if image_path and os.path.exists(image_path):
-        os.remove(image_path)
-        tlog.info("Removed CAPTCHA image after successful registration: %s", image_path)
     del captcha_storage[signup_request.captcha_id]
 
     return SignupResponse(
