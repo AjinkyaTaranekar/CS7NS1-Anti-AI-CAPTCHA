@@ -8,6 +8,9 @@ import hashlib
 import logging
 import os
 import pickle
+#-----------
+import json
+#-----------
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -94,6 +97,20 @@ except FileNotFoundError:
     logger.warning("Model file not found: %s — run train_model.py to create model", MOUSE_MOVEMENT_MODEL)
     print(" ! ERROR: Model not found. Run train_model.py first.")
     HUMAN_MODEL = None
+    
+
+CHAR_MODEL = None
+try:
+    with open("captcha_mouse_movement_prediction/models/char_recognition_model.pkl", "rb") as f:
+        CHAR_MODEL = pickle.load(f)
+        logger.info("Character recognition model loaded successfully.")
+        print(" > Character recognition model loaded successfully.")
+except FileNotFoundError:
+    logger.warning("Character recognition model not found; character matching will be disabled.")
+    CHAR_MODEL = None
+except Exception as e:
+    logger.exception("Failed to load character recognition model: %s", e)
+    CHAR_MODEL = None
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
@@ -103,6 +120,8 @@ CAPTCHA_EXPIRY_MINUTES = 5
 FINGERPRINT_EXPIRY_HOURS = 24
 OUTPUT_DIR = "captcha_images"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+DATASET_PATH = "captcha_mouse_movement_prediction/data/char_strokes_dataset.json"
 
 BG_DIR = "background_images"
 OV_DIR = "overlay_images"
@@ -208,6 +227,7 @@ class CaptchaMouseMovementVerificationResult(BaseModel):
     success: bool
     message: str
     human_score: Optional[float] = None
+    recognized_code: Optional[str] = None
 
 
 def cleanup_expired_captchas():
@@ -1126,118 +1146,333 @@ def save_canvas_image(canvas_image: str, captcha_id: str) -> Optional[str]:
         return None
 
 
-def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional[str] = None) -> CaptchaMouseMovementVerificationResult:
-    """Verify CAPTCHA based on mouse movement patterns.
+# ADDED: helper to append per-character stroke samples to dataset
+def append_samples_to_dataset(expected_code: str, char_groups: list, trace_id: Optional[str] = None) -> None:
+    """
+    Append per-character stroke samples to a JSONL dataset file.
+    Each line: {"label": "<CHAR>", "strokes": [...]}
+    """
+    if not expected_code or not char_groups:
+        return
+
+    if len(expected_code) != len(char_groups):
+        # Only log well-aligned samples
+        return
+
+    try:
+        os.makedirs(os.path.dirname(DATASET_PATH), exist_ok=True)
+        with open(DATASET_PATH, "a", encoding="utf-8") as f:
+            for ch, strokes in zip(expected_code, char_groups):
+                sample = {
+                    "label": ch,
+                    "strokes": strokes,
+                }
+                f.write(json.dumps(sample) + "\n")
+        trace = trace_id or "-"
+        logger.info("[%s] Appended %d character samples to dataset", trace, len(char_groups))
+    except Exception as e:
+        trace = trace_id or "-"
+        logger.error("[%s] Failed to append samples to dataset: %s", trace, e)
+# END ADDED dataset helper
+
+# def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional[str] = None) -> CaptchaMouseMovementVerificationResult:
+#     """Verify CAPTCHA based on mouse movement patterns.
     
+#     Args:
+#         events: List of mouse movement events with x, y, time, and state
+#         expected_code: The expected CAPTCHA code to match
+        
+#     Returns:
+#         CaptchaMouseMovementVerificationResult with success status and message
+#     """
+#     tlog = get_trace_logger(trace_id)
+#     tlog.info("[Verify] Processing verification for expected_code=%s", expected_code)
+    
+#     # 1. Reconstruct Strokes from Events
+#     strokes_raw = []
+#     current_stroke = []
+    
+#     # Robust reconstruction logic
+#     for e in events:
+#         if e['state'] == 'down':
+#             if current_stroke:
+#                 strokes_raw.append(current_stroke)
+#             current_stroke = [{'x': e['x'], 'y': e['y'], 'time': e['time']}]
+#         elif e['state'] == 'move':
+#             if current_stroke:
+#                 current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
+#         elif e['state'] == 'up':
+#             if current_stroke:
+#                 current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
+#                 strokes_raw.append(current_stroke)
+#             current_stroke = []
+    
+#     if current_stroke:
+#         strokes_raw.append(current_stroke)
+    
+#     if not strokes_raw:
+#         tlog.warning("No strokes detected in submitted events")
+#         return CaptchaMouseMovementVerificationResult(
+#             success=False,
+#             message="Please draw the characters."
+#         )
+    
+#     # 2. Segment Characters (Using utils)
+#     char_groups = segment_into_characters(strokes_raw)
+    
+#     # 3. Analysis
+#     recognized_str = ""
+#     human_scores = []
+    
+#     for i, char_strokes in enumerate(char_groups):
+#         # Normalize
+#         arr = normalize_strokes(char_strokes)
+        
+#         # Extract Features (using utils)
+#         feats = extract_features(arr, char_strokes)
+        
+#         # Prepare Vectors
+#         kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
+        
+#         # Predict Human vs Bot
+#         if HUMAN_MODEL:
+#             # XGBoost predict_proba returns [prob_class_0, prob_class_1]
+#             # Class 1 is Human
+#             prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
+#             human_scores.append(prob_human)
+#             tlog.debug("Char %d human probability=%.4f", i, prob_human)
+    
+#     tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
+    
+#     # 3b. Analyze stroke linearity (detect unnaturally straight movements)
+#     linearity_analysis = analyze_stroke_linearity(strokes_raw)
+#     tlog.info("Linearity analysis: score=%.2f avg_deviation=%.2f suspicious=%s",
+#               linearity_analysis['linearity_score'],
+#               linearity_analysis['avg_deviation'],
+#               linearity_analysis['is_suspicious'])
+    
+#     # Penalize human score if movements are unnaturally straight
+#     if linearity_analysis['is_suspicious']:
+#         tlog.warning("Suspicious linearity detected - movements too straight for human")
+#         # Apply penalty to all human scores
+#         penalty = linearity_analysis['linearity_score']  # This is already 0-1 where lower = more suspicious
+#         human_scores = [score * (0.5 + 0.5 * penalty) for score in human_scores]
+    
+#     # 4. Final Decision Logic
+#     # Use the average human score across all characters and if 50% characters pass
+#     avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0
+#     passed_chars = sum(1 for score in human_scores if score >= 0.5) / len(human_scores) if human_scores else 0
+    
+#     tlog.info("Average human score=%.4f passed_chars_ratio=%.2f", avg_human_score, passed_chars)
+#     # Strict threshold for bot detection
+#     if avg_human_score < 0.5 or passed_chars < 0.5:
+#         tlog.warning("Result: BOT DETECTED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+#         return CaptchaMouseMovementVerificationResult(
+#             success=False,
+#             message="Automated movement detected.",
+#             human_score=avg_human_score
+#         )
+    
+#     if 0.5 <= avg_human_score < 0.65:
+#         tlog.warning("Result: BORDERLINE avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+#         return CaptchaMouseMovementVerificationResult(
+#             success=False,
+#             message="Movement too smooth. Try again.",
+#             human_score=avg_human_score
+#         )
+    
+#     tlog.info("Result: VERIFIED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+#     return CaptchaMouseMovementVerificationResult(
+#         success=True,
+#         message="Human Verified!",
+#         human_score=avg_human_score
+#     )
+
+# REPLACED: verify_captcha_movement with human + character recognition + dataset logging
+def verify_captcha_movement(
+    events: list,
+    expected_code: str,
+    trace_id: Optional[str] = None,
+) -> CaptchaMouseMovementVerificationResult:
+    """Verify CAPTCHA based on mouse movement patterns and drawn characters.
+
     Args:
         events: List of mouse movement events with x, y, time, and state
         expected_code: The expected CAPTCHA code to match
-        
+
     Returns:
-        CaptchaMouseMovementVerificationResult with success status and message
+        CaptchaMouseMovementVerificationResult with success status, message,
+        human_score, and recognized_code.
     """
     tlog = get_trace_logger(trace_id)
     tlog.info("[Verify] Processing verification for expected_code=%s", expected_code)
-    
-    # 1. Reconstruct Strokes from Events
-    strokes_raw = []
-    current_stroke = []
-    
-    # Robust reconstruction logic
-    for e in events:
-        if e['state'] == 'down':
-            if current_stroke:
-                strokes_raw.append(current_stroke)
-            current_stroke = [{'x': e['x'], 'y': e['y'], 'time': e['time']}]
-        elif e['state'] == 'move':
-            if current_stroke:
-                current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
-        elif e['state'] == 'up':
-            if current_stroke:
-                current_stroke.append({'x': e['x'], 'y': e['y'], 'time': e['time']})
-                strokes_raw.append(current_stroke)
-            current_stroke = []
-    
-    if current_stroke:
-        strokes_raw.append(current_stroke)
-    
-    if not strokes_raw:
-        tlog.warning("No strokes detected in submitted events")
+
+    if not events:
+        tlog.warning("[Verify] No events provided")
         return CaptchaMouseMovementVerificationResult(
             success=False,
-            message="Please draw the characters."
+            message="No drawing data provided.",
+            human_score=0.0,
+            recognized_code=None,
         )
-    
-    # 2. Segment Characters (Using utils)
+
+    # 1. Reconstruct strokes from events
+    strokes_raw = []
+    current_stroke = []
+
+    for ev in events:
+        state = ev.get("state") or ev.get("type")
+        x = ev.get("x")
+        y = ev.get("y")
+        t = ev.get("t") or ev.get("time") or ev.get("timestamp")
+
+        if state == "down":
+            if current_stroke:
+                strokes_raw.append(current_stroke)
+            current_stroke = [{"x": x, "y": y, "t": t}]
+        elif state == "move":
+            if current_stroke is not None:
+                current_stroke.append({"x": x, "y": y, "t": t})
+        elif state == "up":
+            if current_stroke:
+                current_stroke.append({"x": x, "y": y, "t": t})
+                strokes_raw.append(current_stroke)
+                current_stroke = []
+
+    if current_stroke:
+        strokes_raw.append(current_stroke)
+
+    if not strokes_raw:
+        tlog.warning("[Verify] No strokes reconstructed from events")
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message="No strokes detected in drawing.",
+            human_score=0.0,
+            recognized_code=None,
+        )
+
+    # 2. Segment strokes into per-character groups
     char_groups = segment_into_characters(strokes_raw)
-    
-    # 3. Analysis
-    recognized_str = ""
+    if not char_groups:
+        tlog.warning("[Verify] segment_into_characters returned no groups")
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message="Unable to segment drawing into characters. Try again.",
+            human_score=0.0,
+            recognized_code=None,
+        )
+
+    tlog.info("[Verify] Segmented into %d character groups for code length=%d",
+              len(char_groups), len(expected_code))
+
+    # Log samples only when lengths match
+    if len(char_groups) == len(expected_code):
+        append_samples_to_dataset(expected_code, char_groups, trace_id)
+    else:
+        tlog.warning("[Verify] Mismatch between expected_code length=%d and char_groups=%d",
+                     len(expected_code), len(char_groups))
+
+    # 3. Score human-likeness and recognize characters
     human_scores = []
-    
+    recognized_chars = []
+
     for i, char_strokes in enumerate(char_groups):
-        # Normalize
         arr = normalize_strokes(char_strokes)
-        
-        # Extract Features (using utils)
         feats = extract_features(arr, char_strokes)
-        
-        # Prepare Vectors
+
+        # Vector for both human model and char model
         kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
-        
-        # Predict Human vs Bot
-        if HUMAN_MODEL:
-            # XGBoost predict_proba returns [prob_class_0, prob_class_1]
-            # Class 1 is Human
-            prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
+
+        # Human-vs-bot probability
+        if HUMAN_MODEL is not None:
+            prob_human = float(HUMAN_MODEL.predict_proba(kin_vec)[0][1])
             human_scores.append(prob_human)
-            tlog.debug("Char %d human probability=%.4f", i, prob_human)
-    
-    tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
-    
-    # 3b. Analyze stroke linearity (detect unnaturally straight movements)
-    linearity_analysis = analyze_stroke_linearity(strokes_raw)
-    tlog.info("Linearity analysis: score=%.2f avg_deviation=%.2f suspicious=%s",
-              linearity_analysis['linearity_score'],
-              linearity_analysis['avg_deviation'],
-              linearity_analysis['is_suspicious'])
-    
-    # Penalize human score if movements are unnaturally straight
-    if linearity_analysis['is_suspicious']:
-        tlog.warning("Suspicious linearity detected - movements too straight for human")
-        # Apply penalty to all human scores
-        penalty = linearity_analysis['linearity_score']  # This is already 0-1 where lower = more suspicious
-        human_scores = [score * (0.5 + 0.5 * penalty) for score in human_scores]
-    
-    # 4. Final Decision Logic
-    # Use the average human score across all characters and if 50% characters pass
-    avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0
-    passed_chars = sum(1 for score in human_scores if score >= 0.5) / len(human_scores) if human_scores else 0
-    
-    tlog.info("Average human score=%.4f passed_chars_ratio=%.2f", avg_human_score, passed_chars)
-    # Strict threshold for bot detection
-    if avg_human_score < 0.5 or passed_chars < 0.5:
-        tlog.warning("Result: BOT DETECTED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+            tlog.debug("[Verify] Char %d human probability=%.4f", i, prob_human)
+        else:
+            # If no model, assume neutral
+            human_scores.append(0.5)
+
+        # Character recognition
+        if CHAR_MODEL is not None:
+            try:
+                pred_idx = int(CHAR_MODEL.predict(kin_vec)[0])
+                if 0 <= pred_idx < len(SYMBOLS):
+                    recognized_char = SYMBOLS[pred_idx]
+                else:
+                    recognized_char = "?"
+                    tlog.warning("[Verify] Predicted index %d out of range for SYMBOLS", pred_idx)
+                recognized_chars.append(recognized_char)
+            except Exception as e:
+                tlog.error("[Verify] Character recognition failed for char %d: %s", i, e)
+                recognized_chars.append("?")
+        else:
+            recognized_chars.append("?")
+
+    recognized_str = "".join(recognized_chars)
+    tlog.info("[Verify] Recognition: expected=%s recognized=%s chars_detected=%d human_scores=%d",
+              expected_code, recognized_str, len(char_groups), len(human_scores))
+
+    # 4. Human/bot decision based on movement
+    avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0.0
+    passed_chars_ratio = (
+        sum(1 for s in human_scores if s >= 0.5) / len(human_scores) if human_scores else 0.0
+    )
+
+    tlog.info("[Verify] Average human score=%.4f passed_chars_ratio=%.2f",
+              avg_human_score, passed_chars_ratio)
+
+    if avg_human_score < 0.5 or passed_chars_ratio < 0.5:
+        tlog.warning("[Verify] BOT DETECTED avg_human_score=%.4f passed_ratio=%.2f",
+                     avg_human_score, passed_chars_ratio)
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Automated movement detected.",
-            human_score=avg_human_score
+            human_score=avg_human_score,
+            recognized_code=recognized_str,
         )
-    
+
     if 0.5 <= avg_human_score < 0.65:
-        tlog.warning("Result: BORDERLINE avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+        tlog.warning("[Verify] BORDERLINE human score=%.4f passed_ratio=%.2f",
+                     avg_human_score, passed_chars_ratio)
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Movement too smooth. Try again.",
-            human_score=avg_human_score
+            human_score=avg_human_score,
+            recognized_code=recognized_str,
         )
-    
-    tlog.info("Result: VERIFIED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+
+    # 5. Character correctness check
+    if len(expected_code) != len(recognized_str):
+        tlog.warning("[Verify] Character length mismatch: expected=%d recognized=%d",
+                     len(expected_code), len(recognized_str))
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message=f"Character count mismatch. Read: {recognized_str}",
+            human_score=avg_human_score,
+            recognized_code=recognized_str,
+        )
+
+    if recognized_str.upper() != expected_code.upper():
+        tlog.warning("[Verify] WRONG CHARACTERS: expected=%s recognized=%s",
+                     expected_code, recognized_str)
+        return CaptchaMouseMovementVerificationResult(
+            success=False,
+            message=f"Characters incorrect. Read: {recognized_str}",
+            human_score=avg_human_score,
+            recognized_code=recognized_str,
+        )
+
+    # All checks passed
+    tlog.info("[Verify] Human Verified and characters match.")
     return CaptchaMouseMovementVerificationResult(
         success=True,
-        message="Human Verified!",
-        human_score=avg_human_score
+        message="Human Verified! Characters match.",
+        human_score=avg_human_score,
+        recognized_code=recognized_str,
     )
+# END REPLACED verify_captcha_movement
+
+
 
 
 @app.get("/")
@@ -1561,6 +1796,20 @@ async def signup(signup_request: SignupRequest, request: Request):
         trace_id=trace_id
     )
     
+    # >>> ADDED: hard fail on failed CAPTCHA (movement or characters)
+    if not verification_result.success:
+        tlog.warning(
+            "[4/8] CAPTCHA verification failed for email=%s: %s",
+            signup_request.email,
+            verification_result.message,
+        )
+        # Do NOT proceed to behavioral scoring if CAPTCHA itself failed
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=verification_result.message,
+        )
+    # <<< END ADDED hard fail on CAPTCHA  
+        
     # 5. Analyze behavioral data (mouse & keystroke)
     tlog.info("[5/10] Analyzing behavioral patterns for email=%s", signup_request.email)
     behavioral_analysis = analyze_behavioral_data(
