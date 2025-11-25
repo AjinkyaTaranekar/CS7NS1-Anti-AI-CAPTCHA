@@ -1,2 +1,7 @@
 playwright==1.48.0
 litellm==1.42.2
+matplotlib
+tensorflow[and-cuda]
+
+ultralytics
+opencv-python-headless
