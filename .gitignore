@@ -216,5 +216,7 @@ attackers/attack-recordings/
 attackers/__pycache__/
 attackers/*.log
 attackers/.env
+attackers/yolo_dataset/
+runs/
 
 dataset/
