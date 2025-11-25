@@ -1276,13 +1276,13 @@ async def generate_captcha_challenge(request: Request):
             ov_dir=OV_DIR,
             symbols=SYMBOLS,
             fonts_dir="fonts",
-            font_size=120,
+            font_size=100,
             min_length=4,
-            max_length=6,
-            blur=0.8,
-            bold=5,
+            max_length=5,
+            blur=1.2,
+            bold=4,
             colorblind=False,
-            difficulty=0.2,
+            difficulty=0.5,
         )
         if img is None:
             raise RuntimeError("Image generation returned None")
