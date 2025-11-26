@@ -8,11 +8,10 @@ import hashlib
 import logging
 import os
 import pickle
-#-----------
 import json
-#-----------
 import secrets
 import uuid
+import httpx
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional
@@ -32,6 +31,9 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.sessions import SessionMiddleware
+
+import easyocr
+
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
@@ -84,33 +86,6 @@ def get_trace_logger(trace_id: Optional[str]):
     to include it in subsequent log messages so they can be correlated.
     """
     return logging.LoggerAdapter(logger, {"trace_id": trace_id if trace_id else '-'})
-
-# Print still there for backwards compatibility (keeps tests/examples unchanged)
-print("Loading Model...")
-try:
-    with open(f"captcha_mouse_movement_prediction/models/{MOUSE_MOVEMENT_MODEL}", "rb") as f:
-        HUMAN_MODEL = pickle.load(f)
-
-    logger.info("Model loaded successfully: %s", MOUSE_MOVEMENT_MODEL)
-    print(" > Model loaded successfully.")
-except FileNotFoundError:
-    logger.warning("Model file not found: %s — run train_model.py to create model", MOUSE_MOVEMENT_MODEL)
-    print(" ! ERROR: Model not found. Run train_model.py first.")
-    HUMAN_MODEL = None
-    
-
-CHAR_MODEL = None
-try:
-    with open("captcha_mouse_movement_prediction/models/char_recognition_model.pkl", "rb") as f:
-        CHAR_MODEL = pickle.load(f)
-        logger.info("Character recognition model loaded successfully.")
-        print(" > Character recognition model loaded successfully.")
-except FileNotFoundError:
-    logger.warning("Character recognition model not found; character matching will be disabled.")
-    CHAR_MODEL = None
-except Exception as e:
-    logger.exception("Failed to load character recognition model: %s", e)
-    CHAR_MODEL = None
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
@@ -951,6 +926,41 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
         return 1.0
     return 0.8
 
+def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
+    """
+    Compare two CAPTCHA codes allowing for common OCR confusions like:
+    - 'O' <-> '0'
+    - 'I'/'L' <-> '1'
+    - 'S' <-> '5'
+    - 'Z' <-> '2'
+    """
+    if expected is None or recognized is None:
+        return False
+
+    if len(expected) != len(recognized):
+        return False
+
+    # Define equivalence groups for ambiguous characters
+    equiv_groups = [
+        {"0", "O"},
+        {"1", "I", "L"},
+        {"5", "S"},
+        {"2", "Z"},
+    ]
+
+    def chars_equivalent(e: str, r: str) -> bool:
+        if e == r:
+            return True
+        for group in equiv_groups:
+            if e in group and r in group:
+                return True
+        return False
+
+    for e_ch, r_ch in zip(expected, recognized):
+        if not chars_equivalent(e_ch, r_ch):
+            return False
+    return True
+
 
 def calculate_comprehensive_bot_score(
     captcha_result: CaptchaMouseMovementVerificationResult,
@@ -1374,61 +1384,68 @@ def verify_captcha_movement(
 
     # 3. Score human-likeness and recognize characters
     human_scores = []
-    recognized_chars = []
-
+    kin_vectors = []
+    
+    
     for i, char_strokes in enumerate(char_groups):
         arr = normalize_strokes(char_strokes)
         feats = extract_features(arr, char_strokes)
 
         # Vector for both human model and char model
         kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
+    
+    human_probs = []
 
-        # Human-vs-bot probability
-        if HUMAN_MODEL is not None:
-            prob_human = float(HUMAN_MODEL.predict_proba(kin_vec)[0][1])
-            human_scores.append(prob_human)
-            tlog.debug("[Verify] Char %d human probability=%.4f", i, prob_human)
+    try:
+        
+        kin_vectors = np.array(kin_vectors)
+        
+        human_payload = {"kin_vectors": kin_vectors.tolist()}
+        human_url = "http://localhost:8001/human_evaluate"
+
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.post(human_url, json=human_payload)
+
+        if resp.status_code != 200:
+            tlog.warning("Human model service error: %s %s", resp.status_code, resp.text)
         else:
-            # If no model, assume neutral
-            human_scores.append(0.5)
+            data = resp.json()
+            human_probs = data.get("probabilities", [])
+            tlog.info("Human evaluation model returned: %s", human_probs)
 
-        # Character recognition
-        if CHAR_MODEL is not None:
-            try:
-                pred_idx = int(CHAR_MODEL.predict(kin_vec)[0])
-                if 0 <= pred_idx < len(SYMBOLS):
-                    recognized_char = SYMBOLS[pred_idx]
-                else:
-                    recognized_char = "?"
-                    tlog.warning("[Verify] Predicted index %d out of range for SYMBOLS", pred_idx)
-                recognized_chars.append(recognized_char)
-            except Exception as e:
-                tlog.error("[Verify] Character recognition failed for char %d: %s", i, e)
-                recognized_chars.append("?")
-        else:
-            recognized_chars.append("?")
+    except Exception:
+        tlog.exception("Failed to call human evaluation microservice")
 
-    recognized_str = "".join(recognized_chars)
-    tlog.info("[Verify] Recognition: expected=%s recognized=%s chars_detected=%d human_scores=%d",
-              expected_code, recognized_str, len(char_groups), len(human_scores))
-
-    # 4. Human/bot decision based on movement
-    avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0.0
-    passed_chars_ratio = (
-        sum(1 for s in human_scores if s >= 0.5) / len(human_scores) if human_scores else 0.0
-    )
-
-    tlog.info("[Verify] Average human score=%.4f passed_chars_ratio=%.2f",
-              avg_human_score, passed_chars_ratio)
-
-    if avg_human_score < 0.5 or passed_chars_ratio < 0.5:
-        tlog.warning("[Verify] BOT DETECTED avg_human_score=%.4f passed_ratio=%.2f",
-                     avg_human_score, passed_chars_ratio)
+        
+    tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
+    
+    # 3b. Analyze stroke linearity (detect unnaturally straight movements)
+    linearity_analysis = analyze_stroke_linearity(strokes_raw)
+    tlog.info("Linearity analysis: score=%.2f avg_deviation=%.2f suspicious=%s",
+              linearity_analysis['linearity_score'],
+              linearity_analysis['avg_deviation'],
+              linearity_analysis['is_suspicious'])
+    
+    # Penalize human score if movements are unnaturally straight
+    if linearity_analysis['is_suspicious']:
+        tlog.warning("Suspicious linearity detected - movements too straight for human")
+        # Apply penalty to all human scores
+        penalty = linearity_analysis['linearity_score']  # This is already 0-1 where lower = more suspicious
+        human_scores = [score * (0.5 + 0.5 * penalty) for score in human_scores]
+    
+    # 4. Final Decision Logic
+    # Use the average human score across all characters and if 50% characters pass
+    avg_human_score = sum(human_scores) / len(human_scores) if human_scores else 0
+    passed_chars = sum(1 for score in human_scores if score >= 0.5) / len(human_scores) if human_scores else 0
+    
+    tlog.info("Average human score=%.4f passed_chars_ratio=%.2f", avg_human_score, passed_chars)
+    # Strict threshold for bot detection
+    if avg_human_score < 0.5 or passed_chars < 0.5:
+        tlog.warning("Result: BOT DETECTED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Automated movement detected.",
             human_score=avg_human_score,
-            recognized_code=recognized_str,
         )
 
     if 0.5 <= avg_human_score < 0.65:
@@ -1511,13 +1528,13 @@ async def generate_captcha_challenge(request: Request):
             ov_dir=OV_DIR,
             symbols=SYMBOLS,
             fonts_dir="fonts",
-            font_size=120,
+            font_size=100,
             min_length=4,
-            max_length=6,
-            blur=0.8,
-            bold=5,
+            max_length=5,
+            blur=1.2,
+            bold=4,
             colorblind=False,
-            difficulty=0.2,
+            difficulty=0.5,
         )
         if img is None:
             raise RuntimeError("Image generation returned None")
@@ -1940,6 +1957,74 @@ async def signup(signup_request: SignupRequest, request: Request):
     #         success=False,
     #         message=f"Read: {recognized_str}. Try writing clearer."
     #     )
+
+    # === OCR TODO REPLACEMENT START ===
+    # Use EasyOCR to read the characters drawn on the canvas and verify
+    # that they match the expected CAPTCHA text stored on the server.
+    expected_code = captcha_data["text"]  # e.g. "7W1J"
+    expected_normalized = "".join(expected_code.split()).upper()
+    recognized_str = None
+    
+    if not signup_request.canvasImage:
+        tlog.warning("No canvasImage provided; skipping OCR check")
+    else:
+        ocr_payload = {
+            "image_base64": signup_request.canvasImage
+        }
+        try:
+            # Call the separate OCR FastAPI service
+            ocr_url = "http://localhost:8001/ocr"
+            tlog.info("Calling OCR service at %s", ocr_url)
+
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.post(ocr_url, json=ocr_payload)
+
+            if resp.status_code != 200:
+                tlog.warning(
+                    "OCR service returned status %s: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+            else:
+                ocr_data = resp.json()
+                raw_text = ocr_data.get("raw")
+                recognized_str = ocr_data.get("recognized")
+                tlog.info(
+                    "OCR service result: raw='%s' recognized='%s'",
+                    raw_text,
+                    recognized_str,
+                )
+        except Exception:
+            tlog.exception("Exception while calling OCR service")
+    
+    # If OCR produced a string, enforce that it matches the expected CAPTCHA.
+    # (If OCR_READER is missing or OCR completely failed, we skip this check
+    # to avoid breaking the whole signup flow.)
+    if recognized_str is not None:
+        # Use fuzzy equivalence to tolerate common OCR confusions
+        if not codes_match_with_equivalence(expected_normalized, recognized_str):
+            tlog.warning(
+                "CAPTCHA text mismatch: expected='%s' got='%s' (conf=%s)",
+                expected_normalized,
+                recognized_str
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CAPTCHA drawing did not match the required text. "
+                       "Please redraw the characters more clearly.",
+            )
+        else:
+            tlog.info(
+                "CAPTCHA text recognized correctly by EasyOCR "
+                "(expected='%s', recognized='%s')",
+                expected_normalized,
+                recognized_str  
+            )
+    else:
+    # No recognized_str (service failed or gave nothing) – choose policy:
+    # either skip check, or be strict and reject. Here we log and skip.
+        tlog.warning("No recognized text from OCR service; skipping text match check")
+
 
     # Check if email already exists
     if signup_request.email in user_database:
