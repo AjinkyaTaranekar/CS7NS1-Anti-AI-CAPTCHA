@@ -462,14 +462,14 @@ if __name__ == '__main__':
         print(f"\n=== Starting attack iteration {i+1} ===")
         asyncio.run(
             attack_website(
-                'http://localhost:8000',
+                'http://localhost:5174',
                 user["full_name"] + f" {i}",
                 user["email"] + f"_{i}@example.com",
                 user["password"],
                 'AIzaSyD0gWnYFRfUXQgC2zd-RWjguXoy4WjNzrE',
                 record_video=True,
                 video_dir='attack-recordings',
-                show_browser=False,
+                show_browser=True,
             )
         )
         end_time = time()

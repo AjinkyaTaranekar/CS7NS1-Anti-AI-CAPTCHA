@@ -16,3 +16,9 @@ timestamp,attacker,success,message,captcha_id
 2025-11-25T14:36:38.925992Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,83c4e154-ffd4-4724-b4b1-b98908c7db3c
 2025-11-25T14:37:21.341220Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,cfb52a86-9971-474f-9d57-c43f5d22d632
 2025-11-25T14:38:03.043413Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,8c7ee73a-08b1-47db-82d4-7be3f21ea565
+2025-11-26T18:01:10.566565Z,attacker_2.py,False,CAPTCHA drawing did not match the required text. Please redraw the characters more clearly.,c933fc9b-4749-4ab4-90e7-280e3a2dfa44
+2025-11-26T18:02:00.486847Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,cec35931-b8bd-43e6-863e-4c244aa4767e
+2025-11-26T18:02:50.843380Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,93182d90-44e6-4752-b0d0-eeef3da7ef3d
+2025-11-26T18:05:38.297628Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,2f17a89d-2e98-40eb-a55a-e770af442a3e
+2025-11-26T18:06:25.419724Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,247d9b1e-8b61-44f5-9add-7617c5c96f36
+2025-11-26T18:07:03.484972Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,1a12f54f-caca-41cc-a1b0-7af0dd46f73f

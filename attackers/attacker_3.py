@@ -206,7 +206,7 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
 
 if __name__ == '__main__':
 
-    url = 'http://localhost:8000'
+    url = 'http://localhost:5174'
     user = {
         "full_name": "John Doe",
         "email": "john.doe@example.com",
@@ -230,7 +230,7 @@ if __name__ == '__main__':
                 llm_model,
                 record_video=True,
                 video_dir='attack-recordings',
-                show_browser=False,
+                show_browser=True,
             )
         )
         end_time = time()
