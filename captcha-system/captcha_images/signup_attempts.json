@@ -1,0 +1,207 @@
+[
+  {
+    "attempt_id": "1a909668-0afa-4758-8d18-e630ca60b190_b6656d68",
+    "created_at": "2025-11-23T16:14:37.471163",
+    "status": "completed",
+    "email": "john.doe@example.com",
+    "captcha_id": "1a909668-0afa-4758-8d18-e630ca60b190",
+    "client_ip": "127.0.0.1",
+    "events_length": 191,
+    "mouse_data_length": 211,
+    "keystroke_data_length": 44,
+    "fingerprint_valid": true,
+    "fingerprint_score": 0.7,
+    "pow_valid": true,
+    "pow_nonce": 25003,
+    "honeypot_triggered": false,
+    "captcha_attempt_number": 1,
+    "captcha_text": "21MGI",
+    "verification_result": {
+      "success": true,
+      "message": "Human Verified!",
+      "human_score": 0.8198444247245789
+    },
+    "behavioral_analysis": {
+      "mouse_score": 0.7,
+      "keystroke_score": 0.7,
+      "bot_indicators": [],
+      "human_indicators": [
+        "High mouse movement variation",
+        "Natural typing rhythm variation"
+      ],
+      "data_quality": {
+        "mouse_events": 211,
+        "keystroke_events": 44
+      }
+    },
+    "canvas_score": 0.9,
+    "timing_score": 1.0,
+    "pow_time_score": 0.5,
+    "pow_time_ms": null,
+    "bot_detection": {
+      "final_score": 0.7955564389228822,
+      "verdict": "HUMAN",
+      "confidence": "medium",
+      "individual_scores": {
+        "captcha_mouse_movement": 0.8198444247245789,
+        "behavioral_mouse": 0.7,
+        "behavioral_keystroke": 0.7,
+        "fingerprint_validity": 0.7,
+        "honeypot": 1.0,
+        "timing_analysis": 1.0,
+        "canvas_analysis": 0.9,
+        "pow_timing": 0.5,
+        "rate_limit_history": 0.8
+      },
+      "weighted_scores": {
+        "captcha_mouse_movement": 0.2295564389228821,
+        "behavioral_mouse": 0.10149999999999999,
+        "behavioral_keystroke": 0.10149999999999999,
+        "fingerprint_validity": 0.063,
+        "honeypot": 0.09,
+        "timing_analysis": 0.1,
+        "canvas_analysis": 0.045000000000000005,
+        "pow_timing": 0.025,
+        "rate_limit_history": 0.04000000000000001
+      },
+      "signals": {
+        "captcha_verification": true,
+        "captcha_human_score": 0.8198444247245789,
+        "behavioral_indicators": {
+          "bot_flags": [],
+          "human_flags": [
+            "High mouse movement variation",
+            "Natural typing rhythm variation"
+          ],
+          "data_quality": {
+            "mouse_events": 211,
+            "keystroke_events": 44
+          }
+        },
+        "fingerprint_valid": true,
+        "honeypot_triggered": false,
+        "timing_seconds": 1.0,
+        "canvas_provided": true,
+        "pow_time_ms": null,
+        "pow_time_score": 0.5,
+        "attempt_count": 1
+      },
+      "recommendation": "ALLOW"
+    },
+    "saved_canvas_path": "captcha_images\\drawings\\1a909668-0afa-4758-8d18-e630ca60b190_drawing.png",
+    "user_id": "e0d45dc3-e272-4c48-806e-83d39a9976c1",
+    "final_verdict": "HUMAN",
+    "final_score": 0.7955564389228822
+  },
+  {
+    "attempt_id": "f28dfe9b-fb32-41a3-8838-c5a451d1f94e_cd5e169a",
+    "created_at": "2025-11-23T17:23:38.625705",
+    "status": "failed",
+    "email": "john.doe@example.com",
+    "captcha_id": "f28dfe9b-fb32-41a3-8838-c5a451d1f94e",
+    "client_ip": "127.0.0.1",
+    "events_length": 215,
+    "mouse_data_length": 234,
+    "keystroke_data_length": 44,
+    "fingerprint_valid": true,
+    "fingerprint_score": 0.7,
+    "pow_valid": true,
+    "pow_nonce": 57828,
+    "honeypot_triggered": false,
+    "failure_reason": "invalid_captcha_id"
+  },
+  {
+    "attempt_id": "24acc0d3-44c3-46ae-9d26-246c76499a5a_0ae1b1c2",
+    "created_at": "2025-11-23T17:23:43.278687",
+    "status": "completed",
+    "email": "john.doe@example.com",
+    "captcha_id": "24acc0d3-44c3-46ae-9d26-246c76499a5a",
+    "client_ip": "127.0.0.1",
+    "events_length": 37,
+    "mouse_data_length": 273,
+    "keystroke_data_length": 44,
+    "fingerprint_valid": true,
+    "fingerprint_score": 0.7,
+    "pow_valid": true,
+    "pow_nonce": 23023,
+    "honeypot_triggered": false,
+    "captcha_attempt_number": 1,
+    "captcha_text": "SI3A48",
+    "verification_result": {
+      "success": true,
+      "message": "Human Verified!",
+      "human_score": 0.8629254698753357
+    },
+    "behavioral_analysis": {
+      "mouse_score": 0.7,
+      "keystroke_score": 0.7,
+      "bot_indicators": [],
+      "human_indicators": [
+        "High mouse movement variation",
+        "Natural typing rhythm variation"
+      ],
+      "data_quality": {
+        "mouse_events": 273,
+        "keystroke_events": 44
+      }
+    },
+    "canvas_score": 0.4,
+    "timing_score": 0.2,
+    "pow_time_score": 0.5,
+    "pow_time_ms": null,
+    "bot_detection": {
+      "final_score": 0.702619131565094,
+      "verdict": "HUMAN",
+      "confidence": "medium",
+      "individual_scores": {
+        "captcha_mouse_movement": 0.8629254698753357,
+        "behavioral_mouse": 0.7,
+        "behavioral_keystroke": 0.7,
+        "fingerprint_validity": 0.7,
+        "honeypot": 1.0,
+        "timing_analysis": 0.2,
+        "canvas_analysis": 0.4,
+        "pow_timing": 0.5,
+        "rate_limit_history": 0.8
+      },
+      "weighted_scores": {
+        "captcha_mouse_movement": 0.24161913156509401,
+        "behavioral_mouse": 0.10149999999999999,
+        "behavioral_keystroke": 0.10149999999999999,
+        "fingerprint_validity": 0.063,
+        "honeypot": 0.09,
+        "timing_analysis": 0.020000000000000004,
+        "canvas_analysis": 0.020000000000000004,
+        "pow_timing": 0.025,
+        "rate_limit_history": 0.04000000000000001
+      },
+      "signals": {
+        "captcha_verification": true,
+        "captcha_human_score": 0.8629254698753357,
+        "behavioral_indicators": {
+          "bot_flags": [],
+          "human_flags": [
+            "High mouse movement variation",
+            "Natural typing rhythm variation"
+          ],
+          "data_quality": {
+            "mouse_events": 273,
+            "keystroke_events": 44
+          }
+        },
+        "fingerprint_valid": true,
+        "honeypot_triggered": false,
+        "timing_seconds": 0.2,
+        "canvas_provided": true,
+        "pow_time_ms": null,
+        "pow_time_score": 0.5,
+        "attempt_count": 1
+      },
+      "recommendation": "ALLOW"
+    },
+    "saved_canvas_path": "captcha_images\\drawings\\24acc0d3-44c3-46ae-9d26-246c76499a5a_drawing.png",
+    "user_id": "b6931b0e-f875-4810-8e80-85cbaf6367fc",
+    "final_verdict": "HUMAN",
+    "final_score": 0.702619131565094
+  }
+]

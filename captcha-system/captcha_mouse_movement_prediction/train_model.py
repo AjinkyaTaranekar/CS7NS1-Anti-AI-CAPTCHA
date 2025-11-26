@@ -11,7 +11,8 @@ from tqdm import tqdm
 
 # Add parent directory to path to import from config
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from config.constants import MOUSE_MOVEMENT_MODEL, SYMBOLS
+from config.constants import MOUSE_MOVEMENT_MODEL, SYMBOLS, CHAR_RECOGNITION_MODEL
+from sklearn.preprocessing import LabelEncoder
 
 DATA_FOLDER = "./data"
 MODEL_FOLDER = "./models"
@@ -163,5 +164,43 @@ if __name__ == "__main__":
     os.makedirs(MODEL_FOLDER, exist_ok=True)
     with open(os.path.join(MODEL_FOLDER, MOUSE_MOVEMENT_MODEL), "wb") as f:
         pickle.dump(hb_model, f)
+    
+    # ------------------------------------------------------------------
+    # Train character recognition model (multi-class)
+    # ------------------------------------------------------------------
+    print("\n[Training] Character Recognition Model (multi-class)")
+    if len(X_train_all) == 0 or len(y_train_chars) == 0:
+        print(" >> No training data for recognition model. Skipping.")
+    else:
+        # Encode labels
+        le = LabelEncoder()
+        y_train_enc = le.fit_transform(y_train_chars)
+
+        # Train XGBoost multi-class classifier
+        clf = xgb.XGBClassifier(
+            n_estimators=200,
+            max_depth=6,
+            learning_rate=0.1,
+            objective='multi:softprob',
+            use_label_encoder=False,
+            eval_metric='mlogloss'
+        )
+
+        clf.fit(X_train_all, y_train_enc)
+
+        # Evaluate on test set
+        if len(X_test_all) > 0 and len(y_test_chars) > 0:
+            y_test_enc = le.transform(y_test_chars)
+            y_pred = clf.predict(X_test_all)
+            acc = accuracy_score(y_test_enc, y_pred)
+            print(f" >> Char recognition accuracy: {acc*100:.2f}%")
+        else:
+            print(" >> No test set available for evaluation of recognition model")
+
+        # Save model and label encoder together
+        rec_model_path = os.path.join(MODEL_FOLDER, CHAR_RECOGNITION_MODEL)
+        with open(rec_model_path, 'wb') as f:
+            pickle.dump({'model': clf, 'label_encoder': le}, f)
+        print(f"[Saved] Character recognition model -> {rec_model_path}")
         
     print("Done! Ready for main.py")  
