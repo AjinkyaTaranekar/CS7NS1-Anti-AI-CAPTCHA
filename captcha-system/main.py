@@ -2121,4 +2121,4 @@ async def recent_logs(request: Request, lines: int = 200):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5173)

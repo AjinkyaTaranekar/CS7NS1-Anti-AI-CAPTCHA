@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 import pickle
 import numpy as np
+import uvicorn
 
 
 # ---------- Pydantic models ----------
@@ -214,3 +215,7 @@ async def ocr_endpoint(req: OCRRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok", "easyocr_initialized": OCR_READER is not None}
+
+# ---------- Run app with Uvicorn ----------
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8001)
