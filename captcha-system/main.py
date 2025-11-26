@@ -7,9 +7,9 @@ import base64
 import hashlib
 import logging
 import os
-import pickle
 import secrets
 import uuid
+import httpx
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional
@@ -81,19 +81,6 @@ def get_trace_logger(trace_id: Optional[str]):
     to include it in subsequent log messages so they can be correlated.
     """
     return logging.LoggerAdapter(logger, {"trace_id": trace_id if trace_id else '-'})
-
-# Print still there for backwards compatibility (keeps tests/examples unchanged)
-print("Loading Model...")
-try:
-    with open(f"captcha_mouse_movement_prediction/models/{MOUSE_MOVEMENT_MODEL}", "rb") as f:
-        HUMAN_MODEL = pickle.load(f)
-
-    logger.info("Model loaded successfully: %s", MOUSE_MOVEMENT_MODEL)
-    print(" > Model loaded successfully.")
-except FileNotFoundError:
-    logger.warning("Model file not found: %s — run train_model.py to create model", MOUSE_MOVEMENT_MODEL)
-    print(" ! ERROR: Model not found. Run train_model.py first.")
-    HUMAN_MODEL = None
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
@@ -931,6 +918,41 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
         return 1.0
     return 0.8
 
+def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
+    """
+    Compare two CAPTCHA codes allowing for common OCR confusions like:
+    - 'O' <-> '0'
+    - 'I'/'L' <-> '1'
+    - 'S' <-> '5'
+    - 'Z' <-> '2'
+    """
+    if expected is None or recognized is None:
+        return False
+
+    if len(expected) != len(recognized):
+        return False
+
+    # Define equivalence groups for ambiguous characters
+    equiv_groups = [
+        {"0", "O"},
+        {"1", "I", "L"},
+        {"5", "S"},
+        {"2", "Z"},
+    ]
+
+    def chars_equivalent(e: str, r: str) -> bool:
+        if e == r:
+            return True
+        for group in equiv_groups:
+            if e in group and r in group:
+                return True
+        return False
+
+    for e_ch, r_ch in zip(expected, recognized):
+        if not chars_equivalent(e_ch, r_ch):
+            return False
+    return True
+
 
 def calculate_comprehensive_bot_score(
     captcha_result: CaptchaMouseMovementVerificationResult,
@@ -1174,6 +1196,8 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     # 3. Analysis
     recognized_str = ""
     human_scores = []
+    kin_vectors = []
+    
     
     for i, char_strokes in enumerate(char_groups):
         # Normalize
@@ -1183,16 +1207,33 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
         feats = extract_features(arr, char_strokes)
         
         # Prepare Vectors
-        kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
+        kin_vec = [float(feats[k]) for k in FEATURE_NAMES_KINEMATIC]
         
-        # Predict Human vs Bot
-        if HUMAN_MODEL:
-            # XGBoost predict_proba returns [prob_class_0, prob_class_1]
-            # Class 1 is Human
-            prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
-            human_scores.append(prob_human)
-            tlog.debug("Char %d human probability=%.4f", i, prob_human)
+        kin_vectors.append(kin_vec)
     
+    human_probs = []
+
+    try:
+        
+        kin_vectors = np.array(kin_vectors)
+        
+        human_payload = {"kin_vectors": kin_vectors.tolist()}
+        human_url = "http://localhost:8001/human_evaluate"
+
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.post(human_url, json=human_payload)
+
+        if resp.status_code != 200:
+            tlog.warning("Human model service error: %s %s", resp.status_code, resp.text)
+        else:
+            data = resp.json()
+            human_scores = data.get("probabilities", [])
+            tlog.info("Human evaluation model returned: %s", human_scores)
+
+    except Exception:
+        tlog.exception("Failed to call human evaluation microservice")
+
+        
     tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
     
     # 3b. Analyze stroke linearity (detect unnaturally straight movements)
@@ -1692,6 +1733,74 @@ async def signup(signup_request: SignupRequest, request: Request):
     #         message=f"Read: {recognized_str}. Try writing clearer."
     #     )
 
+    # === OCR TODO REPLACEMENT START ===
+    # Use EasyOCR to read the characters drawn on the canvas and verify
+    # that they match the expected CAPTCHA text stored on the server.
+    expected_code = captcha_data["text"]  # e.g. "7W1J"
+    expected_normalized = "".join(expected_code.split()).upper()
+    recognized_str = None
+    
+    if not signup_request.canvasImage:
+        tlog.warning("No canvasImage provided; skipping OCR check")
+    else:
+        ocr_payload = {
+            "image_base64": signup_request.canvasImage
+        }
+        try:
+            # Call the separate OCR FastAPI service
+            ocr_url = "http://localhost:8001/ocr"
+            tlog.info("Calling OCR service at %s", ocr_url)
+
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.post(ocr_url, json=ocr_payload)
+
+            if resp.status_code != 200:
+                tlog.warning(
+                    "OCR service returned status %s: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+            else:
+                ocr_data = resp.json()
+                raw_text = ocr_data.get("raw")
+                recognized_str = ocr_data.get("recognized")
+                tlog.info(
+                    "OCR service result: raw='%s' recognized='%s'",
+                    raw_text,
+                    recognized_str,
+                )
+        except Exception:
+            tlog.exception("Exception while calling OCR service")
+    
+    # If OCR produced a string, enforce that it matches the expected CAPTCHA.
+    # (If OCR_READER is missing or OCR completely failed, we skip this check
+    # to avoid breaking the whole signup flow.)
+    if recognized_str is not None:
+        # Use fuzzy equivalence to tolerate common OCR confusions
+        if not codes_match_with_equivalence(expected_normalized, recognized_str):
+            tlog.warning(
+                "CAPTCHA text mismatch: expected='%s' got='%s' (conf=%s)",
+                expected_normalized,
+                recognized_str
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CAPTCHA drawing did not match the required text. "
+                       "Please redraw the characters more clearly.",
+            )
+        else:
+            tlog.info(
+                "CAPTCHA text recognized correctly by EasyOCR "
+                "(expected='%s', recognized='%s')",
+                expected_normalized,
+                recognized_str  
+            )
+    else:
+    # No recognized_str (service failed or gave nothing) – choose policy:
+    # either skip check, or be strict and reject. Here we log and skip.
+        tlog.warning("No recognized text from OCR service; skipping text match check")
+
+
     # Check if email already exists
     if signup_request.email in user_database:
         tlog.warning("Duplicate registration attempt for email=%s", signup_request.email)
@@ -1787,4 +1896,4 @@ async def recent_logs(request: Request, lines: int = 200):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5173)
