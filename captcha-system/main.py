@@ -30,6 +30,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.sessions import SessionMiddleware
 
+import easyocr
+
+
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Secure Bank Signup API", version="1.0.0")
@@ -72,6 +75,22 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 logger.info("Starting CAPTCHA service — configuring logging and model load")
+
+
+# === EASYOCR SETUP START ===
+# Initialize EasyOCR reader for recognizing the user's drawn CAPTCHA text.
+# We keep this global so it's created once and reused for all requests.
+try:
+    OCR_READER = easyocr.Reader(['en'], gpu=False)
+    logger.info("EasyOCR reader initialized successfully for canvas OCR")
+except Exception as e:
+    OCR_READER = None
+    logger.warning(
+        "EasyOCR could not be initialized; character recognition will be skipped: %s",
+        e,
+    )
+# === EASYOCR SETUP END ===
+
 
 
 def get_trace_logger(trace_id: Optional[str]):
@@ -931,6 +950,41 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
         return 1.0
     return 0.8
 
+def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
+    """
+    Compare two CAPTCHA codes allowing for common OCR confusions like:
+    - 'O' <-> '0'
+    - 'I'/'L' <-> '1'
+    - 'S' <-> '5'
+    - 'Z' <-> '2'
+    """
+    if expected is None or recognized is None:
+        return False
+
+    if len(expected) != len(recognized):
+        return False
+
+    # Define equivalence groups for ambiguous characters
+    equiv_groups = [
+        {"0", "O"},
+        {"1", "I", "L"},
+        {"5", "S"},
+        {"2", "Z"},
+    ]
+
+    def chars_equivalent(e: str, r: str) -> bool:
+        if e == r:
+            return True
+        for group in equiv_groups:
+            if e in group and r in group:
+                return True
+        return False
+
+    for e_ch, r_ch in zip(expected, recognized):
+        if not chars_equivalent(e_ch, r_ch):
+            return False
+    return True
+
 
 def calculate_comprehensive_bot_score(
     captcha_result: CaptchaMouseMovementVerificationResult,
@@ -1691,6 +1745,78 @@ async def signup(signup_request: SignupRequest, request: Request):
     #         success=False,
     #         message=f"Read: {recognized_str}. Try writing clearer."
     #     )
+
+    # === OCR TODO REPLACEMENT START ===
+    # Use EasyOCR to read the characters drawn on the canvas and verify
+    # that they match the expected CAPTCHA text stored on the server.
+    expected_code = captcha_data["text"]  # e.g. "7W1J"
+    recognized_str = None
+    ocr_confidence = None
+
+    if OCR_READER is None:
+        # EasyOCR not available (import/init failed) – skip character check
+        tlog.warning("EasyOCR reader not available; skipping character recognition check")
+    elif not canvas_image_path:
+        # No saved canvas image – nothing to OCR
+        tlog.warning("No canvas image path available; skipping character recognition check")
+    else:
+        try:
+            # EasyOCR returns: [(bbox, text, confidence), ...]
+            ocr_results = OCR_READER.readtext(
+                canvas_image_path,
+                detail=True,
+                paragraph=True
+            )
+            if ocr_results:
+                texts = [res[1] for res in ocr_results if len(res) >= 2]
+                raw_ocr = "".join(texts)
+                # Normalize: strip spaces and uppercase to compare reliably
+                recognized_str = "".join(raw_ocr.split()).upper()
+                # Average confidence over all detected items
+                valid_confs = [res[2] for res in ocr_results if len(res) >= 3]
+                if valid_confs:
+                    ocr_confidence = float(sum(valid_confs) / len(valid_confs))
+                tlog.info(
+                    "EasyOCR recognition: raw='%s' normalized='%s' conf=%s expected='%s'",
+                    raw_ocr,
+                    recognized_str,
+                    f"{ocr_confidence:.3f}" if ocr_confidence is not None else "N/A",
+                    expected_code,
+                )
+            else:
+                tlog.warning(
+                    "EasyOCR returned no text for canvas image %s",
+                    canvas_image_path,
+                )
+        except Exception:
+            tlog.exception("EasyOCR failed while reading canvas image")
+
+    # If OCR produced a string, enforce that it matches the expected CAPTCHA.
+    # (If OCR_READER is missing or OCR completely failed, we skip this check
+    # to avoid breaking the whole signup flow.)
+    if recognized_str is not None:
+        expected_normalized = "".join(expected_code.split()).upper()
+        # Use fuzzy equivalence to tolerate common OCR confusions
+        if not codes_match_with_equivalence(expected_normalized, recognized_str):
+            tlog.warning(
+                "CAPTCHA text mismatch: expected='%s' got='%s' (conf=%s)",
+                expected_normalized,
+                recognized_str,
+                f"{ocr_confidence:.3f}" if ocr_confidence is not None else "N/A",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CAPTCHA drawing did not match the required text. "
+                       "Please redraw the characters more clearly.",
+            )
+        else:
+            tlog.info(
+                "CAPTCHA text recognized correctly by EasyOCR "
+                "(expected='%s', recognized='%s')",
+                expected_normalized,
+                recognized_str,
+            )
+
 
     # Check if email already exists
     if signup_request.email in user_database:
