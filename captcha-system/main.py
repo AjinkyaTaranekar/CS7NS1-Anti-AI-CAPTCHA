@@ -1218,7 +1218,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
         kin_vectors = np.array(kin_vectors)
         
         human_payload = {"kin_vectors": kin_vectors.tolist()}
-        human_url = "http://localhost:8001/human_evaluate"
+        human_url = "https://anuretic-laree-metazoic.ngrok-free.dev/human_evaluate"
 
         with httpx.Client(timeout=5.0) as client:
             resp = client.post(human_url, json=human_payload)
@@ -1748,7 +1748,7 @@ async def signup(signup_request: SignupRequest, request: Request):
         }
         try:
             # Call the separate OCR FastAPI service
-            ocr_url = "http://localhost:8001/ocr"
+            ocr_url = "https://anuretic-laree-metazoic.ngrok-free.dev/ocr"
             tlog.info("Calling OCR service at %s", ocr_url)
 
             with httpx.Client(timeout=5.0) as client:
