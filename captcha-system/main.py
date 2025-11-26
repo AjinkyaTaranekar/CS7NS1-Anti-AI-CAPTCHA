@@ -10,6 +10,7 @@ import os
 import pickle
 import secrets
 import uuid
+import httpx
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional
@@ -77,22 +78,6 @@ logger.addHandler(console_handler)
 logger.info("Starting CAPTCHA service — configuring logging and model load")
 
 
-# === EASYOCR SETUP START ===
-# Initialize EasyOCR reader for recognizing the user's drawn CAPTCHA text.
-# We keep this global so it's created once and reused for all requests.
-try:
-    OCR_READER = easyocr.Reader(['en'], gpu=False)
-    logger.info("EasyOCR reader initialized successfully for canvas OCR")
-except Exception as e:
-    OCR_READER = None
-    logger.warning(
-        "EasyOCR could not be initialized; character recognition will be skipped: %s",
-        e,
-    )
-# === EASYOCR SETUP END ===
-
-
-
 def get_trace_logger(trace_id: Optional[str]):
     """Return a LoggerAdapter that attaches a trace_id to each LogRecord.
 
@@ -100,19 +85,6 @@ def get_trace_logger(trace_id: Optional[str]):
     to include it in subsequent log messages so they can be correlated.
     """
     return logging.LoggerAdapter(logger, {"trace_id": trace_id if trace_id else '-'})
-
-# Print still there for backwards compatibility (keeps tests/examples unchanged)
-print("Loading Model...")
-try:
-    with open(f"captcha_mouse_movement_prediction/models/{MOUSE_MOVEMENT_MODEL}", "rb") as f:
-        HUMAN_MODEL = pickle.load(f)
-
-    logger.info("Model loaded successfully: %s", MOUSE_MOVEMENT_MODEL)
-    print(" > Model loaded successfully.")
-except FileNotFoundError:
-    logger.warning("Model file not found: %s — run train_model.py to create model", MOUSE_MOVEMENT_MODEL)
-    print(" ! ERROR: Model not found. Run train_model.py first.")
-    HUMAN_MODEL = None
 
 captcha_storage: Dict[str, Dict] = {}
 user_database: Dict[str, Dict] = {}
@@ -1228,6 +1200,8 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     # 3. Analysis
     recognized_str = ""
     human_scores = []
+    kin_vectors = []
+    
     
     for i, char_strokes in enumerate(char_groups):
         # Normalize
@@ -1237,16 +1211,33 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
         feats = extract_features(arr, char_strokes)
         
         # Prepare Vectors
-        kin_vec = np.array([[feats[k] for k in FEATURE_NAMES_KINEMATIC]])
+        kin_vec = [float(feats[k]) for k in FEATURE_NAMES_KINEMATIC]
         
-        # Predict Human vs Bot
-        if HUMAN_MODEL:
-            # XGBoost predict_proba returns [prob_class_0, prob_class_1]
-            # Class 1 is Human
-            prob_human = HUMAN_MODEL.predict_proba(kin_vec)[0][1]
-            human_scores.append(prob_human)
-            tlog.debug("Char %d human probability=%.4f", i, prob_human)
+        kin_vectors.append(kin_vec)
     
+    human_probs = []
+
+    try:
+        
+        kin_vectors = np.array(kin_vectors)
+        
+        human_payload = {"kin_vectors": kin_vectors.tolist()}
+        human_url = "http://localhost:8001/human_evaluate"
+
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.post(human_url, json=human_payload)
+
+        if resp.status_code != 200:
+            tlog.warning("Human model service error: %s %s", resp.status_code, resp.text)
+        else:
+            data = resp.json()
+            human_probs = data.get("probabilities", [])
+            tlog.info("Human evaluation model returned: %s", human_probs)
+
+    except Exception:
+        tlog.exception("Failed to call human evaluation microservice")
+
+        
     tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
     
     # 3b. Analyze stroke linearity (detect unnaturally straight movements)
@@ -1750,59 +1741,51 @@ async def signup(signup_request: SignupRequest, request: Request):
     # Use EasyOCR to read the characters drawn on the canvas and verify
     # that they match the expected CAPTCHA text stored on the server.
     expected_code = captcha_data["text"]  # e.g. "7W1J"
+    expected_normalized = "".join(expected_code.split()).upper()
     recognized_str = None
-    ocr_confidence = None
-
-    if OCR_READER is None:
-        # EasyOCR not available (import/init failed) – skip character check
-        tlog.warning("EasyOCR reader not available; skipping character recognition check")
-    elif not canvas_image_path:
-        # No saved canvas image – nothing to OCR
-        tlog.warning("No canvas image path available; skipping character recognition check")
+    
+    if not signup_request.canvasImage:
+        tlog.warning("No canvasImage provided; skipping OCR check")
     else:
+        ocr_payload = {
+            "image_base64": signup_request.canvasImage
+        }
         try:
-            # EasyOCR returns: [(bbox, text, confidence), ...]
-            ocr_results = OCR_READER.readtext(
-                canvas_image_path,
-                detail=True,
-                paragraph=True
-            )
-            if ocr_results:
-                texts = [res[1] for res in ocr_results if len(res) >= 2]
-                raw_ocr = "".join(texts)
-                # Normalize: strip spaces and uppercase to compare reliably
-                recognized_str = "".join(raw_ocr.split()).upper()
-                # Average confidence over all detected items
-                valid_confs = [res[2] for res in ocr_results if len(res) >= 3]
-                if valid_confs:
-                    ocr_confidence = float(sum(valid_confs) / len(valid_confs))
-                tlog.info(
-                    "EasyOCR recognition: raw='%s' normalized='%s' conf=%s expected='%s'",
-                    raw_ocr,
-                    recognized_str,
-                    f"{ocr_confidence:.3f}" if ocr_confidence is not None else "N/A",
-                    expected_code,
+            # Call the separate OCR FastAPI service
+            ocr_url = "http://localhost:8001/ocr"
+            tlog.info("Calling OCR service at %s", ocr_url)
+
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.post(ocr_url, json=ocr_payload)
+
+            if resp.status_code != 200:
+                tlog.warning(
+                    "OCR service returned status %s: %s",
+                    resp.status_code,
+                    resp.text[:200],
                 )
             else:
-                tlog.warning(
-                    "EasyOCR returned no text for canvas image %s",
-                    canvas_image_path,
+                ocr_data = resp.json()
+                raw_text = ocr_data.get("raw")
+                recognized_str = ocr_data.get("recognized")
+                tlog.info(
+                    "OCR service result: raw='%s' recognized='%s'",
+                    raw_text,
+                    recognized_str,
                 )
         except Exception:
-            tlog.exception("EasyOCR failed while reading canvas image")
-
+            tlog.exception("Exception while calling OCR service")
+    
     # If OCR produced a string, enforce that it matches the expected CAPTCHA.
     # (If OCR_READER is missing or OCR completely failed, we skip this check
     # to avoid breaking the whole signup flow.)
     if recognized_str is not None:
-        expected_normalized = "".join(expected_code.split()).upper()
         # Use fuzzy equivalence to tolerate common OCR confusions
         if not codes_match_with_equivalence(expected_normalized, recognized_str):
             tlog.warning(
                 "CAPTCHA text mismatch: expected='%s' got='%s' (conf=%s)",
                 expected_normalized,
-                recognized_str,
-                f"{ocr_confidence:.3f}" if ocr_confidence is not None else "N/A",
+                recognized_str
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1814,8 +1797,12 @@ async def signup(signup_request: SignupRequest, request: Request):
                 "CAPTCHA text recognized correctly by EasyOCR "
                 "(expected='%s', recognized='%s')",
                 expected_normalized,
-                recognized_str,
+                recognized_str  
             )
+    else:
+    # No recognized_str (service failed or gave nothing) – choose policy:
+    # either skip check, or be strict and reject. Here we log and skip.
+        tlog.warning("No recognized text from OCR service; skipping text match check")
 
 
     # Check if email already exists

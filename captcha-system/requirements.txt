@@ -9,6 +9,7 @@ python-multipart
 slowapi
 joblib
 itsdangerous
+httpx
 
 ultralytics
 opencv-python-headless
