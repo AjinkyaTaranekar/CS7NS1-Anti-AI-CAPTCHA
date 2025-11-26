@@ -16,26 +16,3 @@ timestamp,attacker,success,message,captcha_id
 2025-11-25T14:36:38.925992Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,83c4e154-ffd4-4724-b4b1-b98908c7db3c
 2025-11-25T14:37:21.341220Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,cfb52a86-9971-474f-9d57-c43f5d22d632
 2025-11-25T14:38:03.043413Z,attacker_2.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,8c7ee73a-08b1-47db-82d4-7be3f21ea565
-2025-11-25T16:36:06.556773Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,d69c6d9b-ac2a-439c-8f34-c3832f843ebc
-2025-11-25T16:36:47.000143Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,9d8ea191-e7d6-4236-85c7-9f5d05685bcc
-2025-11-25T16:37:38.335918Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,96296f8e-058f-46cc-b435-08db30eb73bc
-2025-11-25T16:41:56.566288Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,9ab0d04c-08ef-4408-ba00-ac6117070b98
-2025-11-25T16:42:34.049000Z,attacker_yolo.py,False,Email already registered,64094547-3655-4c83-9055-760f4b9b6e80
-2025-11-25T16:43:22.320424Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,31087eb8-b74a-4aef-9ff2-54236e739fe9
-2025-11-25T16:43:59.148904Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,e5863ecd-141d-4fb0-bbb4-765e420188d2
-2025-11-25T16:44:34.414033Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,d8d403ed-c39a-4a76-a357-4dde008bf5e3
-2025-11-25T16:45:08.420546Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,f798c0fa-e4e1-4cc2-9944-4925f439481c
-2025-11-25T16:45:52.042959Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,d4b31a50-4701-4671-87ce-01499c8fbeb6
-2025-11-25T16:46:38.073290Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,ed7efc02-4546-4074-80d1-0d162c6d37ef
-2025-11-25T16:47:18.955100Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,d5bc83af-7705-4136-a4b7-bf8902504340
-2025-11-25T16:48:07.164912Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,6ac14798-a465-482e-8fc9-411f00d42b4f
-2025-11-25T16:50:05.941863Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,31b43841-f8c5-4b73-b5e8-abdb24aceb59
-2025-11-25T16:50:52.371681Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,d0cdfe53-2eea-494f-90a0-56cc2fa1bde9
-2025-11-25T16:51:35.603538Z,attacker_yolo.py,True,"Account created successfully! Welcome, john.doe_2@example.com",d50b1b7e-0a13-4fa4-98b5-a5c53e052461
-2025-11-25T16:52:16.919930Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,5c077760-004a-4072-b6c3-ede2c414d534
-2025-11-25T16:52:51.769275Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,82dcf1f9-8509-4fbc-9c5f-733642bc925d
-2025-11-25T16:53:41.672400Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,f4b86951-67fc-4b97-978f-c8b311ad223e
-2025-11-25T16:54:28.435234Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,28d22792-44ed-4172-ae76-977fb4f319b5
-2025-11-25T16:55:26.460470Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,410232b7-f8ae-4b70-a82b-1f5f0f9ced06
-2025-11-25T16:56:25.309832Z,attacker_yolo.py,False,Suspicious activity detected. Please try again with natural interactions.,0d720b20-510d-4b04-90bc-6d8bb4e93035
-2025-11-25T16:57:05.217565Z,attacker_yolo.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,5b5d4408-6778-4f02-8e95-e651480673d2

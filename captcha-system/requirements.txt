@@ -12,5 +12,3 @@ itsdangerous
 
 ultralytics
 opencv-python-headless
-emnist
-tensorflow[and-cuda]
