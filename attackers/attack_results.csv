@@ -22,3 +22,5 @@ timestamp,attacker,success,message,captcha_id
 2025-11-26T18:05:38.297628Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,2f17a89d-2e98-40eb-a55a-e770af442a3e
 2025-11-26T18:06:25.419724Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,247d9b1e-8b61-44f5-9add-7617c5c96f36
 2025-11-26T18:07:03.484972Z,attacker_3.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,1a12f54f-caca-41cc-a1b0-7af0dd46f73f
+2025-11-27T06:13:24.831652Z,attacker_3.py,False,Automated browser detected,6b1686ab-a8c2-49c5-a5ea-9bf14dc11bc9
+2025-11-27T06:14:10.135469Z,attacker_3.py,False,Automated browser detected,bdb071ac-dfc4-498e-b542-b715f7a625ac

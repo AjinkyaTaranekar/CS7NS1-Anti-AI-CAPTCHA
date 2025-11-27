@@ -7,12 +7,13 @@ import random
 import sys
 import tempfile
 import time
-from time import time as get_time 
+from time import time as get_time
 
 from playwright.async_api import async_playwright
 from ultralytics import YOLO
+from utils import (append_attack_result, draw_captcha, human_like_move_between,
+                   human_like_scroll)
 
-from utils import append_attack_result, draw_captcha, human_like_move_between, human_like_scroll
 
 # ==========================================
 # INTERNAL CLASS: YOLO SOLVER
@@ -98,8 +99,23 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
 
         print(f"Navigating to {base_url}...")
         await page.goto(base_url)
+        
+        gdpr_handled = False
+        # Handling the GDPR consent modal if it appears
+        try:
+            await page.wait_for_selector('#gdprOverlay', state='visible', timeout=5000)
+            print("GDPR consent modal detected, accepting...")
+            await human_like_move_between(page, from_selector='body', to_selector='#gdprAccept', steps=10)
+            await page.click('#gdprAccept')
+            gdpr_handled = True
+            await asyncio.sleep(1)  # wait a moment for modal to close
+        except Exception:
+            # Modal did not appear, continue
+            pass
 
-        # --- Human-like Form Filling ---
+
+        # print("Filling form fields with human-like typing...")
+        # move to the name field and click
         await human_like_move_between(page, from_selector='body', to_selector='#fullName', steps=10)
         await page.click('#fullName')
         await page.type('#fullName', full_name, delay=random.uniform(80, 150))
@@ -236,4 +252,4 @@ if __name__ == "__main__":
         print("="*65)
 
     total_duration = get_time() - start_time_total
-    print(f"\nTotal execution time: {total_duration:.2f} seconds")
+    print(f"\nTotal execution time: {total_duration:.2f} seconds")    print(f"\nTotal execution time: {total_duration:.2f} seconds")

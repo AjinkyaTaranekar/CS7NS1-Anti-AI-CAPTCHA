@@ -260,6 +260,20 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         print("Navigating to the website...")
         await page.goto(base_url)
         
+        gdpr_handled = False
+        # Handling the GDPR consent modal if it appears
+        try:
+            await page.wait_for_selector('#gdprOverlay', state='visible', timeout=5000)
+            print("GDPR consent modal detected, accepting...")
+            await human_like_move_between(page, from_selector='body', to_selector='#gdprAccept', steps=10)
+            await page.click('#gdprAccept')
+            gdpr_handled = True
+            await asyncio.sleep(1)  # wait a moment for modal to close
+        except Exception:
+            # Modal did not appear, continue
+            pass
+
+
         # print("Filling form fields with human-like typing...")
         # move to the name field and click
         await human_like_move_between(page, from_selector='body', to_selector='#fullName', steps=10)
