@@ -21,7 +21,7 @@ from captcha_mouse_movement_prediction.utils import (FEATURE_NAMES_KINEMATIC,
                                                      extract_features,
                                                      normalize_strokes,
                                                      segment_into_characters)
-from config.constants import MOUSE_MOVEMENT_MODEL, SYMBOLS
+from config.constants import MODEL_SERVICE_URL, MOUSE_MOVEMENT_MODEL, SYMBOLS
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from generate import generate_camouflage_captcha
@@ -1400,7 +1400,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
         kin_vectors = np.array(kin_vectors)
         
         human_payload = {"kin_vectors": kin_vectors.tolist()}
-        human_url = "https://anuretic-laree-metazoic.ngrok-free.dev/human_evaluate"
+        human_url = f"{MODEL_SERVICE_URL}/human_evaluate"
 
         with httpx.Client(timeout=5.0) as client:
             resp = client.post(human_url, json=human_payload)
@@ -1983,7 +1983,7 @@ async def signup(signup_request: SignupRequest, request: Request):
         }
         try:
             # Call the separate OCR FastAPI service
-            ocr_url = "https://anuretic-laree-metazoic.ngrok-free.dev/ocr"
+            ocr_url = f"{MODEL_SERVICE_URL}/ocr"
             tlog.info("Calling OCR service at %s", ocr_url)
 
             with httpx.Client(timeout=5.0) as client:
