@@ -1959,18 +1959,6 @@ async def signup(signup_request: SignupRequest, request: Request):
         if canvas_image_path:
             tlog.info("Canvas drawing saved path=%s", canvas_image_path)
     
-    # TODO: Add character recognition model here
-    # For now, we assume all characters are recognized correctly
-    # if recognized_str != expected_code:
-    #     print(" ! Result: WRONG CHARACTERS")
-    #     return CaptchaMouseMovementVerificationResult(
-    #         success=False,
-    #         message=f"Read: {recognized_str}. Try writing clearer."
-    #     )
-
-    # === OCR TODO REPLACEMENT START ===
-    # Use EasyOCR to read the characters drawn on the canvas and verify
-    # that they match the expected CAPTCHA text stored on the server.
     expected_code = captcha_data["text"]  # e.g. "7W1J"
     expected_normalized = "".join(expected_code.split()).upper()
     recognized_str = None
@@ -2007,9 +1995,6 @@ async def signup(signup_request: SignupRequest, request: Request):
         except Exception:
             tlog.exception("Exception while calling OCR service")
     
-    # If OCR produced a string, enforce that it matches the expected CAPTCHA.
-    # (If OCR_READER is missing or OCR completely failed, we skip this check
-    # to avoid breaking the whole signup flow.)
     if recognized_str is not None:
         # Use fuzzy equivalence to tolerate common OCR confusions
         matched, accuracy = codes_match_with_equivalence(expected_normalized, recognized_str)
@@ -2033,9 +2018,11 @@ async def signup(signup_request: SignupRequest, request: Request):
                 recognized_str  
             )
     else:
-    # No recognized_str (service failed or gave nothing) – choose policy:
-    # either skip check, or be strict and reject. Here we log and skip.
-        tlog.warning("No recognized text from OCR service; skipping text match check")
+        tlog.warning("No recognized text from OCR service")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to recognize CAPTCHA text. Please try again."
+        )
 
 
     # Check if email already exists
