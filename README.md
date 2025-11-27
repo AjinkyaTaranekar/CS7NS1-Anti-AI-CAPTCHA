@@ -754,6 +754,14 @@ python model_service.py
 powershell -Command "uvicorn model_service:app --host 0.0.0.0 --port 8001 --reload"
 ```
 
+1.1 Optionally, connect the microservice with NGROK for external access:
+
+```powershell
+ngrok http 8001
+```
+
+1.2 Substitute the public URL in `captcha-system/config/constants.py` under `MODEL_SERVICE_URL`.
+
 2. Start the main backend service (serves `index.html` and REST APIs):
 
 ```powershell
@@ -876,13 +884,13 @@ To access the CAPTCHA system running on your Raspberry Pi from your local machin
 1. Create an SSH tunnel from your local machine to the Jump Server:
 
    ```bash
-   ssh -L 8000:localhost:5174 taraneka@macneill.scss.tcd.ie
+   ssh -L 5174:localhost:5174 <username>@macneill.scss.tcd.ie
    ```
 
 2. After entering your password, the tunnel will be established. Now, create another SSH tunnel from the Jump Server to your Raspberry Pi:
 
    ```bash
-   ssh -L 8000:0.0.0.0:8000 taraneka@rasp-015.berry.scss.tcd.ie
+   ssh -L 5174:0.0.0.0:5174 <username>@rasp-015.berry.scss.tcd.ie
    ```
 
 3. After entering your password, the second tunnel will be established. Now run the CAPTCHA server on your Raspberry Pi if it is not already running.
