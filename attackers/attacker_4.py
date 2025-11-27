@@ -252,4 +252,4 @@ if __name__ == "__main__":
         print("="*65)
 
     total_duration = get_time() - start_time_total
-    print(f"\nTotal execution time: {total_duration:.2f} seconds")    print(f"\nTotal execution time: {total_duration:.2f} seconds")
+    print(f"\nTotal execution time: {total_duration:.2f} seconds")
