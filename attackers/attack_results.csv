@@ -25,3 +25,4 @@ timestamp,attacker,success,message,captcha_id
 2025-11-27T06:13:24.831652Z,attacker_3.py,False,Automated browser detected,6b1686ab-a8c2-49c5-a5ea-9bf14dc11bc9
 2025-11-27T06:14:10.135469Z,attacker_3.py,False,Automated browser detected,bdb071ac-dfc4-498e-b542-b715f7a625ac
 2025-11-27T13:20:37.325842Z,attacker_1.py,False,Additional verification required. Please complete a new CAPTCHA challenge. Generating new CAPTCHA...,11675796-554a-43ad-9a06-2a4a61f841a4
+2025-11-27T13:22:48.442912Z,attacker_1.py,False,no status message,05355e9c-8076-4d0a-94a8-f80a0b72c4b6

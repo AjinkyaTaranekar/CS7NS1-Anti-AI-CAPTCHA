@@ -472,7 +472,7 @@ if __name__ == '__main__':
     }
 
     start_time = time()
-    for i in range(10):
+    for i in range(3):
         print(f"\n=== Starting attack iteration {i+1} ===")
         asyncio.run(
             attack_website(

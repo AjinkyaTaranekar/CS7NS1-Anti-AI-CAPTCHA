@@ -230,7 +230,7 @@ if __name__ == '__main__':
     llm_model = os.getenv('LLM_MODEL', 'MODEL_NAME_HERE')
 
 
-    for i in range(10):
+    for i in range(3):
         print("Starting attack for the iteration:", i + 1)
 
         start_time = time()
