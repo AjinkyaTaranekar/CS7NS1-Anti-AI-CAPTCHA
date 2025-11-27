@@ -56,6 +56,7 @@ Windows users: this repo has been tested on Windows with Python 3.8 and a standa
 
 ### File Structure
 
+```
 CS7NS1-Anti-AI-CAPTCHA/
 ├── captcha-system/                    # Main CAPTCHA service
 │   ├── main.py                        # Backend API (FastAPI) - 1900 lines
@@ -86,6 +87,7 @@ CS7NS1-Anti-AI-CAPTCHA/
     ├── train.py                       # CNN training script
     ├── train_yolo.py                  # YOLO training script
     └── attack_results.csv             # Attack outcome tracking
+```
 
 ---
 
