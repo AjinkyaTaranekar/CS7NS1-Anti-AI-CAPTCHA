@@ -12,7 +12,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import httpx
 import numpy as np
@@ -159,6 +159,8 @@ class BotDetectionScore(BaseModel):
     weighted_scores: Dict[str, float] = Field(..., description="Weighted component contributions")
     signals: dict = Field(..., description="Detailed signal information")
     recommendation: str = Field(..., description="Action recommendation")
+    # Per-component explanations for why a detection triggered
+    explanations: Optional[Dict[str, str]] = Field(default_factory=dict, description="Explainability reasons for components")
 
 
 # Scoring Configuration - Similar to Cloudflare's approach
@@ -202,6 +204,8 @@ class CaptchaMouseMovementVerificationResult(BaseModel):
     success: bool
     message: str
     human_score: Optional[float] = None
+    # Structured explanation messages for why the verification passed/failed
+    explanations: Optional[Dict[str, str]] = None
 
 
 def cleanup_expired_captchas():
@@ -241,23 +245,30 @@ def validate_fingerprint(fingerprint: str, request_timestamp: Optional[datetime]
     logger.debug("Validating fingerprint: %s", hashlib.sha1(fingerprint.encode()).hexdigest() if fingerprint else None)
     score = 0.5  # Neutral starting point
     behavioral_score = 0.5  # Correlation with behavior
+    reasons = []
     
     if not fingerprint or len(fingerprint) < 24:
-        return False, 0.0, 0.0
+        reasons.append("missing_or_too_short: fingerprint missing or shorter than 24 characters")
+        logger.info("Fingerprint invalid: %s", reasons[-1])
+        return False, 0.0, 0.0, {'reasons': reasons}
     
     # Length check (real fingerprints are typically longer)
     if len(fingerprint) >= 32:
         score += 0.15
+        reasons.append("len>=32: long fingerprint length - positive signal")
     elif len(fingerprint) >= 28:
         score += 0.08
+        reasons.append("len>=28: moderately long fingerprint")
     
     # Check for entropy (diverse characters suggest real fingerprint)
     unique_chars = len(set(fingerprint))
     char_entropy = unique_chars / len(fingerprint) if fingerprint else 0
     if unique_chars > 20 and char_entropy > 0.5:
         score += 0.15
+        reasons.append("high_entropy: large unique char set and high entropy")
     elif unique_chars > 15:
         score += 0.08
+        reasons.append("moderate_entropy: unique char count > 15")
     
     # NEW: Check for suspicious patterns that indicate programmatic generation
     # Pattern 1: Repeating sequences (bots often generate patterned strings)
@@ -266,6 +277,7 @@ def validate_fingerprint(fingerprint: str, request_timestamp: Optional[datetime]
             pattern = fingerprint[i:i+pattern_len]
             if fingerprint.count(pattern) > 3:
                 score -= 0.15
+                reasons.append(f"repeating_pattern: fingerprint contains repeated subpattern '{pattern}'")
                 logger.debug("Suspicious repeating pattern in fingerprint: %s", pattern)
                 break
     
@@ -274,6 +286,7 @@ def validate_fingerprint(fingerprint: str, request_timestamp: Optional[datetime]
                           if ord(fingerprint[i+1]) - ord(fingerprint[i]) == 1)
     if sequential_count > len(fingerprint) * 0.3:
         score -= 0.1
+        reasons.append("sequential_chars: many sequential characters like abc/123")
         logger.debug("High sequential character ratio: %.2f", sequential_count/len(fingerprint))
     
     # NEW: Temporal binding check - fingerprint should contain timestamp-like entropy
@@ -285,6 +298,7 @@ def validate_fingerprint(fingerprint: str, request_timestamp: Optional[datetime]
         fp_chars = set(fingerprint.lower())
         if not fp_chars.issubset(base36_chars):
             score -= 0.1  # Non-base36 characters suggest manipulation
+            reasons.append("non_base36_chars: fingerprint contains chars outside base36 (timestamp entropy mismatch)")
     
     # Check if fingerprint has been seen too recently (potential bot reusing fingerprints)
     if fingerprint in fingerprint_cache:
@@ -293,22 +307,27 @@ def validate_fingerprint(fingerprint: str, request_timestamp: Optional[datetime]
         if time_since_last_use < timedelta(seconds=10):
             score -= 0.4  # Heavy penalty for rapid reuse
             behavioral_score -= 0.3
+            reasons.append("rapid_reuse: fingerprint reused within 10 seconds (likely bot)")
         elif time_since_last_use < timedelta(minutes=1):
             score -= 0.2  # Moderate penalty
             behavioral_score -= 0.15
+            reasons.append("recent_reuse: fingerprint reused within 1 minute")
         elif time_since_last_use < timedelta(minutes=5):
             score -= 0.1  # Slight penalty
+            reasons.append("short_reuse: fingerprint reused within 5 minutes")
     else:
         score += 0.1  # First-time fingerprint is slightly positive
+        reasons.append("first_seen: fingerprint not in cache - positive signal")
     
     # Normalize to 0-1 range
     score = max(0.0, min(1.0, score))
     behavioral_score = max(0.0, min(1.0, behavioral_score))
     is_valid = score >= 0.3
     
-    logger.info("Fingerprint validation: valid=%s score=%.3f behavioral=%.3f len=%d", 
+    logger.info("Fingerprint validation: valid=%s score=%.3f behavioral=%.3f len=%d reasons=%s", 
                 is_valid, score, behavioral_score, len(fingerprint) if fingerprint else 0)
-    return is_valid, score, behavioral_score
+    # Return reasons in a small structure for higher-level explainability
+    return is_valid, score, behavioral_score, {'reasons': reasons}
 
 
 def analyze_behavioral_data(mouse_data: Optional[list], 
@@ -416,10 +435,14 @@ def analyze_behavioral_data(mouse_data: Optional[list],
             'mouse_events': len(mouse_data) if mouse_data else 0,
             'keystroke_events': len(keystroke_data) if keystroke_data else 0
         }
+        , 'explanations': {
+            'bot_indicators': bot_indicators,
+            'human_indicators': human_indicators
+        }
     }
 
 
-def analyze_canvas_complexity(canvas_image: Optional[str]) -> float:
+def analyze_canvas_complexity(canvas_image: Optional[str]) -> dict:
     """Analyze canvas drawing complexity to detect bot-like simplicity.
     
     Args:
@@ -430,7 +453,7 @@ def analyze_canvas_complexity(canvas_image: Optional[str]) -> float:
     """
     if not canvas_image or not canvas_image.startswith('data:image'):
         logger.debug("Canvas not provided or invalid format -> returning neutral-low score")
-        return 0.3  # Neutral-low score if no canvas data
+        return {'score': 0.3, 'data_length': 0, 'reason': 'no_canvas_or_invalid_format'}  # Neutral-low score if no canvas data
     
     try:
         # Extract base64 data
@@ -451,14 +474,15 @@ def analyze_canvas_complexity(canvas_image: Optional[str]) -> float:
         else:
             score = 1.0  # Very complex
         
-        logger.info("Canvas complexity: %d chars -> score: %.3f", data_length, score)
-        return score
+        reason = f"data_length={data_length}"
+        logger.info("Canvas complexity: %d chars -> score: %.3f (%s)", data_length, score, reason)
+        return {'score': score, 'data_length': data_length, 'reason': reason}
     except Exception as e:
         logger.exception("Canvas analysis error")
-        return 0.3
+        return {'score': 0.3, 'data_length': 0, 'reason': 'exception_during_analysis'}
 
 
-def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: datetime) -> float:
+def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: datetime) -> dict:
     """Analyze timing patterns to detect bot-like behavior.
     
     Args:
@@ -469,6 +493,7 @@ def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: d
         Score from 0-1 (1=human-like timing, 0=bot-like timing)
     """
     score = 0.5
+    reasons = []
     
     # Check form completion time
     time_to_complete = (datetime.now() - captcha_created_at).total_seconds()
@@ -478,16 +503,20 @@ def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: d
     # Humans typically take 10-120 seconds to complete CAPTCHA + form
     if time_to_complete < 3:
         score = 0.0  # Impossibly fast = bot
+        reasons.append('impossibly_fast: <3s')
     elif time_to_complete < 5:
         score = 0.2  # Very fast = likely bot
+        reasons.append('very_fast: <5s')
     elif time_to_complete < 10:
         score = 0.5  # Fast = suspicious
+        reasons.append('fast: <10s')
     elif time_to_complete < 120:
         score = 1.0  # Normal human range
+        reasons.append('normal_human_range')
     else:
         score = 0.7  # Very slow = possibly legitimate but unusual
-    
-    return score
+        reasons.append('very_slow: >120s')
+    return {'score': score, 'time_to_complete_s': time_to_complete, 'reasons': reasons}
 
 
 def analyze_navigator_info(navigator_info: Optional[dict]) -> dict:
@@ -689,6 +718,11 @@ def analyze_stroke_linearity(strokes: list) -> dict:
     logger.debug("Stroke linearity: avg_deviation=%.2f suspicious_strokes=%d/%d score=%.2f",
                  avg_deviation, suspicious_strokes, len(stroke_deviations), linearity_score)
     
+    reason = []
+    if linearity_score < 0.4:
+        reason.append(f"avg_deviation_low={avg_deviation:.2f}")
+    if suspicious_ratio > 0.3:
+        reason.append(f"suspicious_stroke_ratio={suspicious_ratio:.2f}")
     return {
         'linearity_score': linearity_score,
         'avg_deviation': avg_deviation,
@@ -697,6 +731,7 @@ def analyze_stroke_linearity(strokes: list) -> dict:
         'suspicious_strokes': suspicious_strokes,
         'suspicious_ratio': suspicious_ratio,
         'is_suspicious': is_suspicious
+        , 'explanations': reason
     }
 
 
@@ -858,6 +893,9 @@ def analyze_velocity_physics(strokes: list) -> dict:
     logger.debug("Velocity physics: avg=%.1f px/s cv=%.2f score=%.2f suspicious=%s",
                  avg_velocity, velocity_cv, physics_score, is_suspicious)
     
+    explanations = suspicion_reasons.copy()
+    if avg_velocity:
+        explanations.insert(0, f"avg_velocity={avg_velocity:.1f}px/s")
     return {
         'physics_score': physics_score,
         'avg_velocity': avg_velocity,
@@ -866,6 +904,7 @@ def analyze_velocity_physics(strokes: list) -> dict:
         'is_suspicious': is_suspicious,
         'suspicion_reasons': suspicion_reasons,
         'stroke_count': len(stroke_physics)
+        , 'explanations': explanations
     }
 
 
@@ -980,7 +1019,7 @@ def analyze_timing_correlation(events: list, captcha_created_at: datetime,
     }
 
 
-def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
+def analyze_pow_timing(mining_time_ms: Optional[int]) -> dict:
     """Analyze the time it took the client to solve the PoW puzzle.
 
     Returns a score 0-1 where higher = human-like (longer solve times), lower = suspiciously fast.
@@ -988,7 +1027,7 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
     """
     if mining_time_ms is None:
         # No data — give neutral-low score
-        return 0.5
+        return {'score': 0.5, 'mining_time_ms': None, 'reason': 'no_data'}
 
     t = int(mining_time_ms)
     logger.debug("PoW solve time: %dms", t)
@@ -1000,16 +1039,16 @@ def analyze_pow_timing(mining_time_ms: Optional[int]) -> float:
     # - 5s-30s: normal human solve durations for this difficulty -> best score
     # - >30s: slower than normal but still human-like
     if t <= 200:
-        return 0.1
+        return {'score': 0.1, 'mining_time_ms': t, 'reason': 'extremely_fast'}
     if t <= 1000:
-        return 0.3
+        return {'score': 0.3, 'mining_time_ms': t, 'reason': 'fast'}
     if t <= 5000:
-        return 0.6
+        return {'score': 0.6, 'mining_time_ms': t, 'reason': 'typical_fast'}
     if t <= 30000:
-        return 1.0
-    return 0.8
+        return {'score': 1.0, 'mining_time_ms': t, 'reason': 'human_like'}
+    return {'score': 0.8, 'mining_time_ms': t, 'reason': 'slow_but_human_like'}
 
-def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
+def codes_match_with_equivalence(expected: str, recognized: str) -> Tuple[bool, float]:
     """
     Compare two CAPTCHA codes allowing for common OCR confusions like:
     - 'O' <-> '0'
@@ -1018,10 +1057,10 @@ def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
     - 'Z' <-> '2'
     """
     if expected is None or recognized is None:
-        return False
+        return (False, 0.0)
 
     if len(expected) != len(recognized):
-        return False
+        return (False, 0.0)
 
     # Define equivalence groups for ambiguous characters
     equiv_groups = [
@@ -1047,7 +1086,7 @@ def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
         if chars_equivalent(e_ch, r_ch):
             total_correct += 1
     accuracy = total_correct / len(expected)
-    return accuracy >= 0.8  # Require at least 80% equivalent match
+    return (accuracy >= 0.7, accuracy)  # Return match bool and accuracy
 
 
 def calculate_comprehensive_bot_score(
@@ -1060,10 +1099,16 @@ def calculate_comprehensive_bot_score(
     timing_correlation_score: float,
     canvas_score: float,
     captcha_attempts: int,
+    fingerprint_analysis: Optional[dict] = None,
+    canvas_analysis: Optional[dict] = None,
+    timing_analysis: Optional[dict] = None,
     pow_time_score: float = 0.5,
+    pow_analysis: Optional[dict] = None,
     pow_time_ms: Optional[int] = None,
     stroke_linearity_score: float = 0.5,
+    linearity_analysis: Optional[dict] = None,
     stroke_physics_score: float = 0.5,
+    physics_analysis: Optional[dict] = None,
     client_ip: Optional[str] = None,
     navigator_info_score: float = 0.5,
     navigator_info_raw: Optional[dict] = None,
@@ -1132,6 +1177,27 @@ def calculate_comprehensive_bot_score(
     # If caller provided a navigator_info_score, use it; otherwise default stays
     individual_scores['navigator_info'] = navigator_info_score
     
+    # Assemble explanations dictionary from analyses provided
+    explanations_summary = {}
+    if navigator_info_analysis:
+        explanations_summary['navigator_info'] = str(navigator_info_analysis.get('flags', []))
+    if fingerprint_analysis and isinstance(fingerprint_analysis, dict):
+        explanations_summary['fingerprint_analysis'] = str(fingerprint_analysis)
+    if canvas_analysis and isinstance(canvas_analysis, dict):
+        explanations_summary['canvas_analysis'] = str(canvas_analysis)
+    if timing_analysis and isinstance(timing_analysis, dict):
+        explanations_summary['timing_analysis'] = str(timing_analysis)
+    if linearity_analysis and isinstance(linearity_analysis, dict):
+        explanations_summary['linearity_analysis'] = str(linearity_analysis)
+    if physics_analysis and isinstance(physics_analysis, dict):
+        explanations_summary['physics_analysis'] = str(physics_analysis)
+    if pow_analysis and isinstance(pow_analysis, dict):
+        explanations_summary['pow_analysis'] = str(pow_analysis)
+
+    # Also add captcha_result explanations
+    if captcha_result and getattr(captcha_result, 'explanations', None):
+        explanations_summary['captcha_verification'] = str(captcha_result.explanations)
+
     # Calculate weighted contributions
     weighted_scores = {}
     total_weighted_score = 0.0
@@ -1207,10 +1273,15 @@ def calculate_comprehensive_bot_score(
         signals['navigator_info'] = navigator_info_raw
     if navigator_info_analysis:
         signals['navigator_info_analysis'] = navigator_info_analysis
+    # Add consolidated explainability reasons for each component
+    if explanations_summary:
+        signals['explanations'] = explanations_summary
     
     logger.info("VERDICT: %s (confidence: %s) RECOMMENDATION: %s", verdict, confidence, recommendation)
     
     logger.debug("Signals: %s", signals)
+    if explanations_summary:
+        logger.info("Explanation summary: %s", explanations_summary)
     return BotDetectionScore(
         final_score=total_weighted_score,
         verdict=verdict,
@@ -1218,7 +1289,8 @@ def calculate_comprehensive_bot_score(
         individual_scores=individual_scores,
         weighted_scores=weighted_scores,
         signals=signals,
-        recommendation=recommendation
+        recommendation=recommendation,
+        explanations=explanations_summary
     )
 
 
@@ -1268,6 +1340,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     tlog = get_trace_logger(trace_id)
     tlog.info("[Verify] Processing verification for expected_code=%s", expected_code)
     
+    explanations = {}
     # 1. Reconstruct Strokes from Events
     strokes_raw = []
     current_stroke = []
@@ -1292,9 +1365,11 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     
     if not strokes_raw:
         tlog.warning("No strokes detected in submitted events")
+        explanations['strokes'] = 'none_detected'
         return CaptchaMouseMovementVerificationResult(
             success=False,
-            message="Please draw the characters."
+            message="Please draw the characters.",
+            explanations=explanations
         )
     
     # 2. Segment Characters (Using utils)
@@ -1332,6 +1407,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
 
         if resp.status_code != 200:
             tlog.warning("Human model service error: %s %s", resp.status_code, resp.text)
+            explanations['human_model'] = f"service_error_{resp.status_code}"
         else:
             data = resp.json()
             human_scores = data.get("probabilities", [])
@@ -1339,6 +1415,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
 
     except Exception:
         tlog.exception("Failed to call human evaluation microservice")
+        explanations['human_model'] = 'exception'
 
         
     tlog.info("Recognition: expected=%s reconstructed_chars=%d human_scores_count=%d", expected_code, len(char_groups), len(human_scores))
@@ -1353,6 +1430,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     # Penalize human score if movements are unnaturally straight
     if linearity_analysis['is_suspicious']:
         tlog.warning("Suspicious linearity detected - movements too straight for human")
+        explanations['linearity'] = 'suspiciously_straight_strokes'
         # Apply penalty to all human scores
         penalty = linearity_analysis['linearity_score']  # This is already 0-1 where lower = more suspicious
         human_scores = [score * (0.5 + 0.5 * penalty) for score in human_scores]
@@ -1366,25 +1444,31 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     # Strict threshold for bot detection
     if avg_human_score < 0.5 or passed_chars < 0.5:
         tlog.warning("Result: BOT DETECTED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+        explanations['final'] = f"avg_human_score={avg_human_score:.3f} passed_chars_ratio={passed_chars:.2f}"
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Automated movement detected.",
-            human_score=avg_human_score
+            human_score=avg_human_score,
+            explanations=explanations
         )
     
     if 0.5 <= avg_human_score < 0.65:
         tlog.warning("Result: BORDERLINE avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+        explanations['final'] = f"borderline: avg_human_score={avg_human_score:.3f} passed_chars_ratio={passed_chars:.2f}"
         return CaptchaMouseMovementVerificationResult(
             success=False,
             message="Movement too smooth. Try again.",
-            human_score=avg_human_score
+            human_score=avg_human_score,
+            explanations=explanations
         )
     
     tlog.info("Result: VERIFIED avg_human_score=%.4f passed_chars=%.2f", avg_human_score, passed_chars)
+    explanations['final'] = f"verified: avg_human_score={avg_human_score:.3f} passed_chars_ratio={passed_chars:.2f}"
     return CaptchaMouseMovementVerificationResult(
         success=True,
         message="Human Verified!",
-        human_score=avg_human_score
+        human_score=avg_human_score,
+        explanations=explanations
     )
 
 
@@ -1563,12 +1647,13 @@ async def signup(signup_request: SignupRequest, request: Request):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
 
     # 1. Validate browser fingerprint (now with behavioral score)
-    fingerprint_valid, fingerprint_score, fingerprint_behavioral_score = validate_fingerprint(
+    fingerprint_valid, fingerprint_score, fingerprint_behavioral_score, fingerprint_analysis = validate_fingerprint(
         signup_request.fingerprint, 
         request_timestamp=server_receive_time
     )
-    tlog.info("[1/10] Fingerprint validation: valid=%s score=%.3f behavioral=%.3f", 
-              fingerprint_valid, fingerprint_score, fingerprint_behavioral_score)
+    # Log the boolean validation and reason list for explainability
+    tlog.info("[1/10] Fingerprint validation: valid=%s score=%.3f behavioral=%.3f analysis=%s", 
+              fingerprint_valid, fingerprint_score, fingerprint_behavioral_score, fingerprint_analysis)
 
 
     # 1b. Verify proof-of-work: ensure client solved server challenge
@@ -1605,7 +1690,7 @@ async def signup(signup_request: SignupRequest, request: Request):
         if signup_request.captcha_id in captcha_storage:
             captcha_storage[signup_request.captcha_id]["pow_attempts"] += 1
             attempts = captcha_storage[signup_request.captcha_id]["pow_attempts"]
-            tlog.warning("[PoW] invalid nonce — pow_attempts=%d", attempts)
+            tlog.warning("[PoW] invalid nonce — pow_attempts=%d expected_prefix=%s actual_hash_prefix=%s", attempts, prefix, result_hash[:len(prefix)+4])
             # Invalidate after N bad PoW attempts
             if attempts > 10:
                 del captcha_storage[signup_request.captcha_id]
@@ -1614,7 +1699,7 @@ async def signup(signup_request: SignupRequest, request: Request):
                     detail="Too many invalid proof attempts — CAPTCHA invalidated. Please request a new one."
                 )
 
-        tlog.warning("[PoW] invalid nonce nonce=%s", signup_request.nonce)
+        tlog.warning("[PoW] invalid nonce — hash prefix mismatch expected=%s actual=%s", prefix, result_hash[:len(prefix)+4])
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid proof-of-work nonce. Please solve the challenge correctly."
@@ -1636,11 +1721,15 @@ async def signup(signup_request: SignupRequest, request: Request):
         or (signup_request.verification_code and signup_request.verification_code.strip())
     )
     
+    llm_fields_triggered = [
+        ('ai_detected', signup_request.ai_detected),
+        ('bot_signature', signup_request.bot_signature),
+        ('verification_code', signup_request.verification_code)
+    ]
+    triggered_list = []
     if llm_honeypot_triggered:
-        tlog.warning("[LLM HONEYPOT TRIGGERED] ai_detected=%s bot_signature=%s verification_code=%s",
-                    signup_request.ai_detected,
-                    signup_request.bot_signature,
-                    signup_request.verification_code)
+        triggered_list = [name for name, val in llm_fields_triggered if val and str(val).strip()]
+        tlog.warning("[LLM HONEYPOT TRIGGERED] fields=%s values=%s", triggered_list, {k: v for k, v in zip([n for n, _ in llm_fields_triggered], [v for _, v in llm_fields_triggered])})
     
     # Combine both honeypot checks
     honeypot_triggered = honeypot_triggered or llm_honeypot_triggered
@@ -1649,7 +1738,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     
     # Immediate block for LLM honeypot (high confidence bot detection)
     if llm_honeypot_triggered:
-        tlog.warning("Immediate block: LLM honeypot triggered - definite bot")
+        tlog.warning("Immediate block: LLM honeypot triggered - definite bot fields=%s", triggered_list)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied."
@@ -1683,7 +1772,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     # Prevent nonce replay and ensure challenge hasn't already been used for another signup
     if captcha_data.get("pow_solved"):
-        tlog.warning("Replay attack: proof-of-work already used")
+        tlog.warning("Replay attack: proof-of-work already used for captcha_id=%s", signup_request.captcha_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This CAPTCHA's proof-of-work has already been used. Request a new CAPTCHA."
@@ -1691,7 +1780,7 @@ async def signup(signup_request: SignupRequest, request: Request):
 
     used_nonces = captcha_data.setdefault("used_nonces", [])
     if signup_request.nonce in used_nonces:
-        tlog.warning("Nonce already used nonce=%s", signup_request.nonce)
+        tlog.warning("Nonce already used nonce=%s for captcha_id=%s", signup_request.nonce, signup_request.captcha_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nonce already used for this CAPTCHA. Please request a new one."
@@ -1712,6 +1801,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     tlog.info("[3/8] CAPTCHA attempt #%d email=%s", captcha_data['attempts'], signup_request.email)
 
     if captcha_data["attempts"] > 3:
+        tlog.warning("Too many failed attempts: %d for captcha_id=%s", captcha_data["attempts"], signup_request.captcha_id)
         del captcha_storage[signup_request.captcha_id]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1735,12 +1825,16 @@ async def signup(signup_request: SignupRequest, request: Request):
     
     # 6. Analyze canvas drawing complexity
     tlog.info("[6/10] Analyzing canvas complexity")
-    canvas_score = analyze_canvas_complexity(signup_request.canvasImage)
+    canvas_result = analyze_canvas_complexity(signup_request.canvasImage)
+    canvas_score = canvas_result.get('score', 0.3) if isinstance(canvas_result, dict) else canvas_result
+    tlog.info("[Canvas] score=%0.3f details=%s", canvas_score, canvas_result)
     
     # 7. Analyze timing patterns
     tlog.info("[7/10] Analyzing timing patterns")
     captcha_created_at = captcha_data.get("created_at", datetime.now() - timedelta(minutes=1))
-    timing_score = analyze_timing_patterns(signup_request, captcha_created_at)
+    timing_result = analyze_timing_patterns(signup_request, captcha_created_at)
+    timing_score = timing_result.get('score', 0.5) if isinstance(timing_result, dict) else timing_result
+    tlog.info("[Timing] score=%0.3f details=%s", timing_score, timing_result)
     
     # 7b. NEW: Analyze timing correlation (server-client timing consistency)
     tlog.info("[7b/10] Analyzing timing correlation")
@@ -1758,8 +1852,9 @@ async def signup(signup_request: SignupRequest, request: Request):
     # 8. Calculate comprehensive bot detection score
     tlog.info("[8/10] Calculating comprehensive bot score for email=%s", signup_request.email)
     # Calculate PoW timing score (how long the client took to solve the puzzle)
-    pow_time_score = analyze_pow_timing(signup_request.mining_time_ms)
-    tlog.info("[PoW] pow_time_score=%0.3f ms=%s", pow_time_score, signup_request.mining_time_ms)
+    pow_result = analyze_pow_timing(signup_request.mining_time_ms)
+    pow_time_score = pow_result.get('score', 0.5) if isinstance(pow_result, dict) else pow_result
+    tlog.info("[PoW] score=%0.3f ms=%s reason=%s", pow_time_score, pow_result.get('mining_time_ms'), pow_result.get('reason'))
     
     # Reconstruct strokes from drawing events for physics analysis
     strokes_from_events = []
@@ -1806,15 +1901,21 @@ async def signup(signup_request: SignupRequest, request: Request):
         behavioral_analysis=behavioral_analysis,
         fingerprint_score=fingerprint_score,
         fingerprint_behavioral_score=fingerprint_behavioral_score,
+        fingerprint_analysis=fingerprint_analysis,
         honeypot_triggered=honeypot_triggered,
         timing_score=timing_score,
+        timing_analysis=timing_result,
         timing_correlation_score=timing_correlation_score,
         canvas_score=canvas_score,
+        canvas_analysis=canvas_result,
         captcha_attempts=captcha_data["attempts"],
         pow_time_score=pow_time_score,
         pow_time_ms=signup_request.mining_time_ms,
+        pow_analysis=pow_result,
         stroke_linearity_score=linearity_result['linearity_score'],
+        linearity_analysis=linearity_result,
         stroke_physics_score=physics_result['physics_score'],
+        physics_analysis=physics_result,
         client_ip=client_ip,
         navigator_info_score=navigator_info_analysis.get('score', 0.5),
         navigator_info_raw=signup_request.navigatorInfo,
@@ -1825,19 +1926,19 @@ async def signup(signup_request: SignupRequest, request: Request):
     tlog.info("Bot detection result: score=%0.3f verdict=%s recommendation=%s", bot_detection.final_score, bot_detection.verdict, bot_detection.recommendation)
 
     if bot_detection.recommendation == "BLOCK":
-        tlog.warning("Blocking signup: bot detected score=%0.3f", bot_detection.final_score)
+        tlog.warning("Blocking signup: bot detected score=%0.3f explanations=%s", bot_detection.final_score, bot_detection.explanations)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Bot detected (score: {bot_detection.final_score:.3f}). Access denied."
         )
     elif bot_detection.recommendation == "BLOCK_SOFT":
-        tlog.warning("Soft-block: suspicious score=%0.3f", bot_detection.final_score)
+        tlog.warning("Soft-block: suspicious score=%0.3f explanations=%s", bot_detection.final_score, bot_detection.explanations)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Suspicious activity detected. Please try again with natural interactions."
         )
     elif bot_detection.recommendation == "CHALLENGE":
-        tlog.warning("Additional challenge required: score=%0.3f", bot_detection.final_score)
+        tlog.warning("Additional challenge required: score=%0.3f explanations=%s", bot_detection.final_score, bot_detection.explanations)
         # Issue additional challenge - frontend will generate new CAPTCHA
         print(f" ⚠ CHALLENGE: Suspicious score {bot_detection.final_score:.3f} - requiring additional verification")
         del captcha_storage[signup_request.captcha_id]
@@ -1909,11 +2010,13 @@ async def signup(signup_request: SignupRequest, request: Request):
     # to avoid breaking the whole signup flow.)
     if recognized_str is not None:
         # Use fuzzy equivalence to tolerate common OCR confusions
-        if not codes_match_with_equivalence(expected_normalized, recognized_str):
+        matched, accuracy = codes_match_with_equivalence(expected_normalized, recognized_str)
+        if not matched:
             tlog.warning(
-                "CAPTCHA text mismatch: expected='%s' got='%s' (conf=%s)",
+                "CAPTCHA text mismatch: expected='%s' got='%s' accuracy=%.2f",
                 expected_normalized,
-                recognized_str
+                recognized_str,
+                accuracy
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
