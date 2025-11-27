@@ -1511,8 +1511,8 @@ async def generate_captcha_challenge(request: Request):
             font_size=100,
             min_length=4,
             max_length=5,
-            blur=1.2,
-            bold=4,
+            blur=0.8,
+            bold=5,
             colorblind=False,
             difficulty=0.5,
         )
@@ -1641,10 +1641,12 @@ async def signup(signup_request: SignupRequest, request: Request):
         ua = str((signup_request.navigatorInfo.get('userAgent') or '')).lower()
         if 'headless' in ua or 'phantom' in ua or 'playwright' in ua or 'puppeteer' in ua or 'selenium' in ua or 'webdriver' in ua:
             tlog.warning("Immediate block due to headless/automation userAgent: %s", ua)
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
+            # Commenting them for attackers to attack, demo purpose.
+            # raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
         if signup_request.navigatorInfo.get('webdriver'):
             tlog.warning("Immediate block due to navigator.webdriver=true")
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
+            # Commenting them for attackers to attack, demo purpose.
+            # raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
 
     # 1. Validate browser fingerprint (now with behavioral score)
     fingerprint_valid, fingerprint_score, fingerprint_behavioral_score, fingerprint_analysis = validate_fingerprint(
