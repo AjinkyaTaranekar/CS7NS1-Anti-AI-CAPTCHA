@@ -148,6 +148,24 @@
 </head>
 <body class="bg-glass-light text-slate-100">
 
+    <!-- GDPR Consent Modal (mandatory for behavioral tracking) -->
+    <div id="gdprOverlay" role="dialog" aria-modal="true" aria-hidden="true" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" style="display:none;">
+        <div class="glass-card max-w-3xl mx-4 p-6 rounded-xl text-slate-100">
+            <h3 class="text-lg font-semibold mb-2">Privacy & Data Collection Consent</h3>
+            <p class="text-sm text-slate-300 mb-4">We collect device & behavioral data (mouse movements, canvas drawing events, and keystrokes) to detect automated/bot signups and to improve user safety. This data is processed in-session and will be stored on the server only if you complete signup and consent is granted. By clicking "Accept & Continue" below you consent to session collection of this behavioral data for the purpose described.</p>
+            <ul class="text-sm text-slate-300 mb-4 list-disc pl-5">
+                <li>Mouse & touch movements are captured while using this page.</li>
+                <li>Keystrokes into fields are recorded for analytics and bot detection only.</li>
+                <li>Canvas drawings are used for CAPTCHA validation.</li>
+            </ul>
+            <p class="text-sm text-slate-300 mb-4">This consent will be stored for the current browser session only. You can withdraw consent by refreshing or closing the browser session. This page will remain blocked until you accept this policy.</p>
+            <div class="flex items-center gap-3 justify-end">
+                <button id="gdprView" type="button" class="glass-link text-[11px] text-slate-300">View privacy policy</button>
+                <button id="gdprAccept" type="button" class="btn-cta">Accept & Continue</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Top bar -->
     <header class="max-w-6xl mx-auto px-4 pt-5 flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -161,7 +179,7 @@
     </header>
 
     <!-- Main -->
-    <main class="max-w-6xl mx-auto px-4 py-10 md:py-14">
+    <main id="mainContent" class="max-w-6xl mx-auto px-4 py-10 md:py-14">
         <div class="flex flex-col md:flex-row items-center gap-8 md:gap-12">
 
             <!-- Left text / hero -->
@@ -336,6 +354,7 @@
                              class="hidden text-[11px] bg-red-500/10 border border-red-400/80 text-red-300 px-3 py-2 rounded-xl"></div>
                         <div id="successMessage"
                              class="hidden text-[11px] bg-emerald-500/10 border border-emerald-400/80 text-emerald-300 px-3 py-2 rounded-xl"></div>
+                            <!-- Automation signals are collected and evaluated server-side; no frontend automated decisions -->
 
                         <!-- Submit -->
                         <button id="submitBtn" type="submit"
@@ -456,45 +475,68 @@
         let strokeRanges = []; // {start, end} indexes into mouseEvents per stroke
         let currentStroke = null;
         let currentStrokeStartIdx = 0;
+        // Flag indicating user has given GDPR consent for behavioral tracking
+        let gdprConsentGiven = false;
 
-        // ------------ GLOBAL MOUSE/TOUCH TRACKING (not canvas drawing) ------------
-        function recordMouse(state, e) {
-            mouseData.push({
-                x: e.clientX,
-                y: e.clientY,
-                timestamp: Date.now(),
-                state
+        // Behavioral tracking initialization is only activated after GDPR consent
+        function initBehavioralTracking() {
+            // Attach global mouse listeners
+            function recordMouse(state, e) {
+                mouseData.push({
+                    x: e.clientX,
+                    y: e.clientY,
+                    timestamp: Date.now(),
+                    state
+                });
+            }
+
+            document.addEventListener("mousedown", e => {
+                isMouseDown = true;
+                recordMouse("down", e);
             });
-        }
 
-        document.addEventListener("mousedown", e => {
-            isMouseDown = true;
-            recordMouse("down", e);
-        });
-
-        document.addEventListener("mousemove", e => {
-            if (isMouseDown) recordMouse("move", e);
-        });
-
-        document.addEventListener("mouseup", e => {
-            isMouseDown = false;
-            recordMouse("up", e);
-        });
-
-        function recordTouch(state, ev) {
-            const t = ev.touches[0] || ev.changedTouches[0];
-            if (!t) return;
-            mouseData.push({
-                x: t.clientX,
-                y: t.clientY,
-                timestamp: Date.now(),
-                state
+            document.addEventListener("mousemove", e => {
+                if (isMouseDown) recordMouse("move", e);
             });
-        }
 
-        document.addEventListener("touchstart", e => { isTouchActive = true; recordTouch("touchstart", e); });
-        document.addEventListener("touchmove",  e => { if (isTouchActive) recordTouch("touchmove", e); });
-        document.addEventListener("touchend",   e => { isTouchActive = false; recordTouch("touchend", e); });
+            document.addEventListener("mouseup", e => {
+                isMouseDown = false;
+                recordMouse("up", e);
+            });
+
+            function recordTouch(state, ev) {
+                const t = ev.touches[0] || ev.changedTouches[0];
+                if (!t) return;
+                mouseData.push({
+                    x: t.clientX,
+                    y: t.clientY,
+                    timestamp: Date.now(),
+                    state
+                });
+            }
+
+            document.addEventListener("touchstart", e => { isTouchActive = true; recordTouch("touchstart", e); });
+            document.addEventListener("touchmove",  e => { if (isTouchActive) recordTouch("touchmove", e); });
+            document.addEventListener("touchend",   e => { isTouchActive = false; recordTouch("touchend", e); });
+
+            // Attach input keystroke listeners
+            ["fullName", "email", "password", "confirmPassword"].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener("keydown", e => recordKey(e, "down"));
+                el.addEventListener("keyup",   e => recordKey(e, "up"));
+            });
+
+            // Hook canvas drawing events (already defined functions)
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            window.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('touchstart', startDrawing, {passive: false});
+            canvas.addEventListener('touchmove', draw, {passive: false});
+            canvas.addEventListener('touchend', stopDrawing, {passive: false});
+
+            // Keyboard shortcut for Undo is handled globally (no double-bind here)
+        }
 
         // ------------ KEYSTROKE TRACKING ------------
         function recordKey(e, type) {
@@ -506,12 +548,6 @@
                 timestamp: Date.now()
             });
         }
-
-        ["fullName", "email", "password", "confirmPassword"].forEach(id => {
-            const el = document.getElementById(id);
-            el.addEventListener("keydown", e => recordKey(e, "down"));
-            el.addEventListener("keyup",   e => recordKey(e, "up"));
-        });
 
         // Canvas setup
         const canvas = document.getElementById('drawingCanvas');
@@ -598,17 +634,7 @@
             updateUndoUI();
         }
 
-        // Mouse events
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mousemove', draw);
-        window.addEventListener('mouseup', stopDrawing);
-        
-        // Touch events
-        canvas.addEventListener('touchstart', startDrawing, {passive: false});
-        canvas.addEventListener('touchmove', draw, {passive: false});
-        canvas.addEventListener('touchend', stopDrawing, {passive: false});
-
-        // Clear button
+        // Clear button (enable regardless of consent; drawing will not be recorded until consent)
         document.getElementById('clearCanvas').addEventListener('click', clearDrawing);
 
         // Undo option
@@ -664,6 +690,85 @@
 
         // Initialize canvas
         setupCanvas();
+
+        // Disable right click (context menu) globally
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // GDPR modal handling: show a consent dialog if not accepted in this session
+        function showGDPRModal() {
+            const overlay = document.getElementById('gdprOverlay');
+            if (!overlay) return;
+            overlay.style.display = 'flex';
+            overlay.setAttribute('aria-hidden', 'false');
+            // Prevent scroll
+            document.body.style.overflow = 'hidden';
+            const acceptBtn = document.getElementById('gdprAccept');
+            if (acceptBtn) acceptBtn.focus();
+            // Inert main content to prevent keyboard focus (if supported)
+            const main = document.getElementById('mainContent');
+            if (main) {
+                try { main.inert = true; } catch(e) { main.setAttribute('aria-hidden', 'true'); }
+            }
+        }
+
+        function hideGDPRModal() {
+            const overlay = document.getElementById('gdprOverlay');
+            if (!overlay) return;
+            overlay.style.display = 'none';
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+            // Restore main content interactive state
+            const main = document.getElementById('mainContent');
+            if (main) {
+                try { main.inert = false; } catch(e) { main.removeAttribute('aria-hidden'); }
+            }
+        }
+
+        function acceptGDPR() {
+            sessionStorage.setItem('gdpr_behavioral_consent', 'true');
+            gdprConsentGiven = true;
+            hideGDPRModal();
+            // Start behavioral tracking now that consent is given
+            initBehavioralTracking();
+
+            // We only capture navigatorInfo and GDPR consent; server will analyze signals
+
+            // Enable submit button only if proof-of-work nonce is present
+            const submitBtn = document.getElementById('submitBtn');
+            const powInput = document.getElementById('powNonce');
+            if (submitBtn) submitBtn.disabled = !(powInput && powInput.value);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add click handler for modal accept
+            const acceptBtn = document.getElementById('gdprAccept');
+            if (acceptBtn) acceptBtn.addEventListener('click', acceptGDPR);
+
+            const viewBtn = document.getElementById('gdprView');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', () => {
+                    // Open a privacy policy link or modal — placeholder to new tab
+                    window.open('/privacy', '_blank');
+                });
+            }
+
+            // If consent exists in this session, initialize tracking immediately
+            if (sessionStorage.getItem('gdpr_behavioral_consent') === 'true') {
+                gdprConsentGiven = true;
+                initBehavioralTracking();
+                // If consent already present, do nothing on the client — server will handle navigator and signals
+            } else {
+                // Block the page until consent is given
+                // Disable submit while blocked — PoW is still being solved but user cannot submit
+                const submitBtn = document.getElementById('submitBtn');
+                if (submitBtn) submitBtn.disabled = true;
+                showGDPRModal();
+            }
+        });
+
+        // Client-side automation detection and scoring removed; server will analyze navigator info centrally.
 
         // Generate browser fingerprint
         function generateFingerprint() {
@@ -758,6 +863,7 @@
                 `;
                 
                 clearDrawing();
+                // automationWarning removed; server evaluates navigatorInfo and behavioral signals
                 // Ensure the mine button is wired after loading a new challenge
                 try {
                     const mineBtn = document.getElementById('mine-btn');
@@ -853,6 +959,11 @@
         // Handle form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            // Ensure GDPR consent was given for behavioral data
+            if (sessionStorage.getItem('gdpr_behavioral_consent') !== 'true') {
+                showError('Please accept the privacy and data collection policy before creating an account.');
+                return;
+            }
             
             // Email format check
             const email = document.getElementById('email').value;
@@ -922,7 +1033,20 @@
                 keystrokeData: keystrokeData,   // Keyboard tracking
                 canvasImage: canvasImage,       // Canvas drawing as image
                 nonce: Number(powNonce),
+                navigatorInfo: {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language,
+                    languages: navigator.languages || [],
+                    hardwareConcurrency: navigator.hardwareConcurrency || null,
+                    deviceMemory: navigator.deviceMemory || null,
+                    webdriver: !!navigator.webdriver,
+                    screenResolution: `${screen.width}x${screen.height}`
+                },
+                gdprConsent: (sessionStorage.getItem('gdpr_behavioral_consent') === 'true')
             };
+
+            // No client-side automation detection: we rely on server-side analysis of navigatorInfo and behavior.
 
             try {
                 const response = await fetch('/api/signup', {
@@ -942,6 +1066,7 @@
                     mouseData = [];
                     keystrokeData = [];
                     mouseEvents = [];
+                    // automationWarning removed; server evaluates navigatorInfo and behavioral signals
                     
                     // Reload CAPTCHA for next use
                     setTimeout(() => {

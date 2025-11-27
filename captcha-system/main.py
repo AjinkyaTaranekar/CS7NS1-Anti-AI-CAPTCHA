@@ -7,13 +7,14 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import uuid
-import httpx
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Optional
 
+import httpx
 import numpy as np
 import uvicorn
 from captcha_mouse_movement_prediction.utils import (FEATURE_NAMES_KINEMATIC,
@@ -135,6 +136,9 @@ class SignupRequest(BaseModel):
     nonce: Optional[int] = Field(default=None, description="Proof-of-work nonce")
     # mining time in milliseconds (how long it took the client to solve the PoW)
     mining_time_ms: Optional[int] = Field(default=None, description="Proof-of-work time in ms")
+    # Client-provided raw signals (navigator, webGL, plugins, etc.) - no automated scoring client-side
+    navigatorInfo: Optional[dict] = Field(default=None, description="Navigator info snapshot (userAgent, languages, platform, hardwareConcurrency, webdriver flag etc.)")
+    gdprConsent: Optional[bool] = Field(default=None, description="Indicates the user accepted GDPR data collection for session")
 
 
 class SignupResponse(BaseModel):
@@ -179,6 +183,9 @@ SCORING_WEIGHTS = {
     'canvas_analysis': 0.03,
     'rate_limit_history': 0.02
 }
+
+# Add weight for client-provided navigator/client signals which are raw and validated server-side
+SCORING_WEIGHTS['navigator_info'] = 0.06
 
 # Thresholds for final verdict (stricter than before)
 THRESHOLD_HUMAN = 0.68      # >= 0.68 = Likely human (increased from 0.65)
@@ -481,6 +488,90 @@ def analyze_timing_patterns(signup_request: SignupRequest, captcha_created_at: d
         score = 0.7  # Very slow = possibly legitimate but unusual
     
     return score
+
+
+def analyze_navigator_info(navigator_info: Optional[dict]) -> dict:
+    """Analyze raw client-side signals (navigator & heuristics) and return a simple score and flags.
+
+    Args:
+        navigator_info: Minimal snapshot of navigator fields
+
+    Returns:
+        Dict with score (0-1) and diagnostic flags
+    """
+    logger.info("[NavigatorInfo] Analyzing navigator info provided by client")
+    flags = []  # Initialize flags for diagnostic purposes
+    score = 0.6  # neutral starting point
+
+    try:
+        if not navigator_info:
+            flags.append('no_signals')
+            score -= 0.2
+            return {'score': max(0.0, min(1.0, score)), 'flags': flags, 'raw': {}}
+
+        n = navigator_info or {}
+
+        # WebDriver presence is a strong bot signal
+        # WebDriver presence (if frontend included) — strong bot signal
+        if n.get('webdriver'):
+            flags.append('navigator.webdriver')
+            score -= 0.5
+
+        # Headless UA / UA anomalies
+        # UA headless patterns
+        ua = n.get('userAgent', '')
+        if ua and re.search(r"Headless|PhantomJS|SlimerJS|playwright|puppeteer|selenium|webdriver", ua, flags=re.I):
+            flags.append('ua_headless')
+            score -= 0.3
+        # Empty plugins or missing languages indicate automated contexts
+        # Plugins/languages not collected in navigatorInfo by default — keep placeholder checks if added
+        languages = n.get('languages')
+        if isinstance(languages, (list, tuple)) and len(languages) == 0:
+            flags.append('languages_missing')
+            score -= 0.15
+
+        # Presence of Playwright/selenium globals
+        # windowDescriptor can't be provided through navigatorInfo — skip
+
+        # Headless WebGL drivers are suspicious (SwiftShader/llvmpipe)
+        # headless WebGL detection not available in navigatorInfo - skip unless provided
+
+        # Permission anomalies (errors or unexpected states)
+        perm = n.get('notificationsPerm') if isinstance(n, dict) else None
+        if perm in ('error', 'denied'):
+            flags.append('notification_perm')
+            score -= 0.1
+
+        # UA inconsistencies (navigator info mismatch)
+        if ua and 'Headless' in ua:
+            flags.append('ua_contains_headless')
+            score -= 0.3
+
+        # Very low hardwareConcurrency often indicates CI containers
+        hc = n.get('hardwareConcurrency')
+        if isinstance(hc, (int, float)) and hc <= 1:
+            flags.append('low_hardware_concurrency')
+            score -= 0.05
+
+        # Cookie disabled often used in headless contexts
+        if n.get('cookieEnabled') is False or n.get('cookieEnabled') == False:
+            flags.append('cookies_disabled')
+            score -= 0.05
+
+        # Minimal adjustments for missing plugin or languages
+        plugins = n.get('plugins')
+        if plugins is not None and isinstance(plugins, (list, str)):
+            # If plugins present and zero-length, suspicious
+            if (isinstance(plugins, list) and len(plugins) == 0) or (isinstance(plugins, str) and plugins == ''):
+                flags.append('zero_plugins')
+                score -= 0.06
+
+        # Cap and normalize
+        score = max(0.0, min(1.0, score))
+        return {'score': score, 'flags': flags, 'raw': dict(n or {})}
+    except Exception as e:
+        logger.exception("Failed navigator info analysis")
+        return {'score': 0.5, 'flags': ['error'], 'raw': {}}
 
 
 def analyze_stroke_linearity(strokes: list) -> dict:
@@ -968,7 +1059,10 @@ def calculate_comprehensive_bot_score(
     pow_time_ms: Optional[int] = None,
     stroke_linearity_score: float = 0.5,
     stroke_physics_score: float = 0.5,
-    client_ip: Optional[str] = None
+    client_ip: Optional[str] = None,
+    navigator_info_score: float = 0.5,
+    navigator_info_raw: Optional[dict] = None,
+    navigator_info_analysis: Optional[dict] = None
 ) -> BotDetectionScore:
     """Calculate final bot detection score using weighted approach similar to Cloudflare.
     
@@ -1029,6 +1123,9 @@ def calculate_comprehensive_bot_score(
         'canvas_analysis': canvas_score,
         'rate_limit_history': max(0.0, 1.0 - (captcha_attempts * 0.25))  # Steeper penalty
     }
+    # Add placeholder for navigator_info — if none will default in caller
+    # If caller provided a navigator_info_score, use it; otherwise default stays
+    individual_scores['navigator_info'] = navigator_info_score
     
     # Calculate weighted contributions
     weighted_scores = {}
@@ -1100,6 +1197,11 @@ def calculate_comprehensive_bot_score(
         'attack_pattern_penalty': attack_pattern_penalty,
         'attempt_count': captcha_attempts
     }
+    # Include client-provided signals and analysis if present
+    if navigator_info_raw:
+        signals['navigator_info'] = navigator_info_raw
+    if navigator_info_analysis:
+        signals['navigator_info_analysis'] = navigator_info_analysis
     
     logger.info("VERDICT: %s (confidence: %s) RECOMMENDATION: %s", verdict, confidence, recommendation)
     
@@ -1438,6 +1540,23 @@ async def signup(signup_request: SignupRequest, request: Request):
     trace_id = getattr(signup_request, 'captcha_id', None)
     tlog = get_trace_logger(trace_id)
 
+    # Server-side check for GDPR consent — must be explicitly true to proceed
+    if not getattr(signup_request, 'gdprConsent', False):
+        tlog.warning("Signup attempt without GDPR consent: email=%s ip=%s", signup_request.email, client_ip)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="GDPR consent required")
+
+    # Log client-provided signals for audit and further server-side analysis
+    if signup_request.navigatorInfo:
+        tlog.info("Navigator snapshot: %s", str(signup_request.navigatorInfo))
+        # Immediate block for strongest signals (headless or webdriver)
+        ua = str((signup_request.navigatorInfo.get('userAgent') or '')).lower()
+        if 'headless' in ua or 'phantom' in ua or 'playwright' in ua or 'puppeteer' in ua or 'selenium' in ua or 'webdriver' in ua:
+            tlog.warning("Immediate block due to headless/automation userAgent: %s", ua)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
+        if signup_request.navigatorInfo.get('webdriver'):
+            tlog.warning("Immediate block due to navigator.webdriver=true")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Automated browser detected")
+
     # 1. Validate browser fingerprint (now with behavioral score)
     fingerprint_valid, fingerprint_score, fingerprint_behavioral_score = validate_fingerprint(
         signup_request.fingerprint, 
@@ -1672,6 +1791,11 @@ async def signup(signup_request: SignupRequest, request: Request):
               physics_result['is_suspicious'],
               physics_result.get('suspicion_reasons', []))
 
+    # Analyze client-provided signals and incorporate in scoring
+    tlog.info("Analyzing client navigator info %s", signup_request.navigatorInfo)
+    navigator_info_analysis = analyze_navigator_info(signup_request.navigatorInfo)
+    tlog.info("Navigator info analysis score=%.3f flags=%s", navigator_info_analysis.get('score', 0.0), navigator_info_analysis.get('flags', []))
+
     bot_detection = calculate_comprehensive_bot_score(
         captcha_result=verification_result,
         behavioral_analysis=behavioral_analysis,
@@ -1686,7 +1810,10 @@ async def signup(signup_request: SignupRequest, request: Request):
         pow_time_ms=signup_request.mining_time_ms,
         stroke_linearity_score=linearity_result['linearity_score'],
         stroke_physics_score=physics_result['physics_score'],
-        client_ip=client_ip
+        client_ip=client_ip,
+        navigator_info_score=navigator_info_analysis.get('score', 0.5),
+        navigator_info_raw=signup_request.navigatorInfo,
+        navigator_info_analysis=navigator_info_analysis
     )
     
     # Make decision based on comprehensive score
