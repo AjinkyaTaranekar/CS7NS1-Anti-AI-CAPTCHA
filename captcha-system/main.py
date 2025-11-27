@@ -1025,10 +1025,13 @@ def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
 
     # Define equivalence groups for ambiguous characters
     equiv_groups = [
-        {"0", "O"},
-        {"1", "I", "L"},
-        {"5", "S"},
+        {"0", "O", "o"  },
+        {"1", "I", "L", "|"},
+        {"5", "S", "s"},
         {"2", "Z"},
+        {"8", "B"},
+        {"6", "G", "e"},
+        {"9", "g"},
     ]
 
     def chars_equivalent(e: str, r: str) -> bool:
@@ -1039,10 +1042,12 @@ def codes_match_with_equivalence(expected: str, recognized: str) -> bool:
                 return True
         return False
 
+    total_correct = 0
     for e_ch, r_ch in zip(expected, recognized):
-        if not chars_equivalent(e_ch, r_ch):
-            return False
-    return True
+        if chars_equivalent(e_ch, r_ch):
+            total_correct += 1
+    accuracy = total_correct / len(expected)
+    return accuracy >= 0.8  # Require at least 80% equivalent match
 
 
 def calculate_comprehensive_bot_score(
