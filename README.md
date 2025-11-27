@@ -63,7 +63,7 @@ An Anti-AI CAPTCHA system for CS7NS1 module at Trinity College Dublin. This proj
     ```
 
 7. **Access the CAPTCHA System**
-    Open your web browser and navigate to `http://localhost:8000` to access the CAPTCHA system.
+    Open your web browser and navigate to `http://localhost:5174` to access the CAPTCHA system.
 
 ## Deploying and Running on Raspberry Pi
 
@@ -76,7 +76,7 @@ To access the CAPTCHA system running on your Raspberry Pi from your local machin
 1. Create an SSH tunnel from your local machine to the Jump Server:
 
    ```bash
-   ssh -L 8000:localhost:8000 taraneka@macneill.scss.tcd.ie
+   ssh -L 8000:localhost:5174 taraneka@macneill.scss.tcd.ie
    ```
 
 2. After entering your password, the tunnel will be established. Now, create another SSH tunnel from the Jump Server to your Raspberry Pi:
@@ -86,5 +86,5 @@ To access the CAPTCHA system running on your Raspberry Pi from your local machin
    ```
 
 3. After entering your password, the second tunnel will be established. Now run the CAPTCHA server on your Raspberry Pi if it is not already running.
-4. Now, you can access the CAPTCHA system running on your Raspberry Pi by navigating to `http://localhost:8000` on your local machine’s web browser.   Make sure that the CAPTCHA server is running on the Raspberry Pi before trying to access it from your local machine.
+4. Now, you can access the CAPTCHA system running on your Raspberry Pi by navigating to `http://localhost:5174` on your local machine’s web browser.   Make sure that the CAPTCHA server is running on the Raspberry Pi before trying to access it from your local machine.
 
