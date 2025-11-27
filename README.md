@@ -2,7 +2,9 @@
 
 An Anti-AI CAPTCHA system for CS7NS1 at Trinity College Dublin. This repository contains a configurable CAPTCHA generator, a FastAPI backend that enforces several anti-automation signals (mouse/keystroke analysis, honeypots, navigator fingerprints, PoW), an OCR microservice, and several attack suites to evaluate the robustness of the system.
 
-[Anti-AI-CAPTCHA-System-Architecture.pdf](https://github.com/user-attachments/files/23797981/Anti-AI-CAPTCHA-System-Architecture.pdf)
+It follows the colour blending principle to generate a CAPTCHA image based on the colour theory:
+
+<img width="2976" height="1440" alt="Gemini_Generated_Image_62hbe62hbe62hbe6" src="https://github.com/user-attachments/assets/8a5adb9f-1024-4392-b776-37a2a9884c78" />
 
 ---
 
