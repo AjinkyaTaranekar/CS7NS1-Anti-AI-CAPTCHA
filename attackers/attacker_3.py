@@ -23,7 +23,7 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         if record_video:
             import os
             import time
-            subdir = f"run_{int(time.time())}"
+            subdir = f"run_attacker_3_{int(time.time())}"
             full_video_dir = os.path.join(video_dir, subdir)
             # Ensure path exists - Playwright will create files into it
             os.makedirs(full_video_dir, exist_ok=True)

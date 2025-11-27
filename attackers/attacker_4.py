@@ -88,7 +88,7 @@ async def attack_website(base_url: str, full_name: str, email: str, password: st
         context = None
         
         if record_video:
-            subdir = f"run_{int(get_time())}"
+            subdir = f"run_attacker_4_{int(get_time())}"
             full_video_dir = os.path.join(video_dir, subdir)
             os.makedirs(full_video_dir, exist_ok=True)
             context = await browser.new_context(record_video_dir=full_video_dir)
