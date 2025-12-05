@@ -20,15 +20,23 @@ It follows the colour blending principle to generate a CAPTCHA image based on th
 
 ## Table of Contents
 
-1. Project overview
-2. Local dev setup (Python, venv, dependencies)
-3. Run the services (backend, OCR microservice)
-4. Generate datasets and CAPTCHAs
-5. Train the mouse movement & recognition models
-6. Attack simulations (how to run the attacker scripts)
-7. API & Frontend details
-8. File structure overview
-9. Raspberry Pi deploy hints
+- [CS7NS1 – Anti-AI CAPTCHA](#cs7ns1--anti-ai-captcha)
+  - [Quick Links](#quick-links)
+  - [Table of Contents](#table-of-contents)
+  - [Project overview](#project-overview)
+  - [Prerequisites](#prerequisites)
+    - [File Structure](#file-structure)
+  - [Helper scripts (convenience)](#helper-scripts-convenience)
+  - [Local Development Setup](#local-development-setup)
+  - [Running the Services](#running-the-services)
+  - [Endpoints (Quick Reference)](#endpoints-quick-reference)
+  - [Generate sample CAPTCHAs \& Datasets](#generate-sample-captchas--datasets)
+  - [Train the Movement \& Recognition Models](#train-the-movement--recognition-models)
+  - [Attack Suite: How to Run Attackers](#attack-suite-how-to-run-attackers)
+  - [Notes for Developers (Important details / files to inspect)](#notes-for-developers-important-details--files-to-inspect)
+  - [Raspberry Pi / Low-power Deployment](#raspberry-pi--low-power-deployment)
+  - [Port Forwarding from Raspberry Pi to Local Machine](#port-forwarding-from-raspberry-pi-to-local-machine)
+  - [Acknowledgements \& Resources](#acknowledgements--resources)
 
 ---
 
@@ -358,7 +366,7 @@ To access the CAPTCHA system running on your Raspberry Pi from your local machin
    ssh -L 5174:0.0.0.0:5174 <username>@rasp-015.berry.scss.tcd.ie
    ```
 
-7. After entering your password, the second tunnel will be established. 
+7. After entering your password, the second tunnel will be established.
 8. Git clone the repository on your Raspberry Pi if you haven't already:
 
    ```bash
