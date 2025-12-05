@@ -21,7 +21,7 @@ from captcha_mouse_movement_prediction.utils import (FEATURE_NAMES_KINEMATIC,
                                                      extract_features,
                                                      normalize_strokes,
                                                      segment_into_characters)
-from config.constants import MODEL_SERVICE_URL, MOUSE_MOVEMENT_MODEL, SYMBOLS
+from config.constants import SYMBOLS
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from generate import generate_camouflage_captcha
@@ -30,6 +30,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.sessions import SessionMiddleware
+
+MODEL_SERVICE_URL = os.environ.get("MODEL_SERVICE_URL", "http://localhost:8001")
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
