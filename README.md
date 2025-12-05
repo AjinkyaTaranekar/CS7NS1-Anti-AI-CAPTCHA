@@ -95,80 +95,6 @@ CS7NS1-Anti-AI-CAPTCHA/
 
 ---
 
-## Local Development Setup
-
-1. Clone the repo
-
-```powershell
-git clone https://github.com/AjinkyaTaranekar/CS7NS1-Anti-AI-CAPTCHA.git
-cd CS7NS1-Anti-AI-CAPTCHA
-```
-
-2. Create & activate virtual environment
-
-```powershell
-python -m venv venv
-venv\Scripts\Activate.ps1  # Windows PowerShell
-# or for cmd: venv\Scripts\activate
-# or linux / macOS: source venv/bin/activate
-```
-
-3. Install backend dependencies
-
-```powershell
-pip install -r captcha-system/backend-service-requirements.txt
-```
-
-Install the OCR/model microservice dependencies (separate environment if preferred):
-
-```powershell
-pip install -r captcha-system/model-service-requirements.txt
-```
-
-For the attacker suite, install:
-
-```powershell
-pip install -r attackers/requirements.txt
-# Playwright requires an extra setup step to install browsers
-python -m playwright install chromium
-```
-
-NOTE: If you are deploying on resource-constrained Pi hardware, use `captcha-system/backend-service-rasp-requirements.txt` for a trimmed set of compatible versions.
-
----
-
-## Running the Services
-
-1. Start the OCR/Model Microservice (optional but recommended if you want to use the OCR endpoint):
-
-```powershell
-cd captcha-system
-python model_service.py
-# OR explicitly with uvicorn
-powershell -Command "uvicorn model_service:app --host 0.0.0.0 --port 8001 --reload"
-```
-
-1.1 Optionally, connect the microservice with NGROK for external access:
-
-```powershell
-ngrok http 8001
-```
-
-1.2 Substitute the public URL in `captcha-system/config/constants.py` under `MODEL_SERVICE_URL`.
-
-2. Start the main backend service (serves `index.html` and REST APIs):
-
-```powershell
-# From captcha-system folder
-python main.py
-# OR explicitly with uvicorn for more controlled configs
-powershell -Command "uvicorn main:app --host 0.0.0.0 --port 5174 --reload"
-```
-
-3. Visit the frontend at `http://localhost:5174`. The web page (`index.html`) calls the backend endpoints: `/api/captcha/challenge` and `/api/signup`.
-
----
-
 ## Helper scripts (convenience)
 
 Two convenience Bash helper scripts are included to make local development easier. Both scripts live at the repository root and are intended to be run from a Bash environment (Linux/macOS/WSL/Git Bash). On Windows PowerShell you can run them via `bash run-backend.sh` / `bash run-attackers.sh` if you have WSL or Git Bash installed.
@@ -219,6 +145,76 @@ bash run-attackers.sh
 - The attacker script requires environment variables `API_KEY` and `LLM_MODEL` to be set; if they are missing the script warns and exits. You can set them in the current shell or create `attackers/.env` with the variables.
 - `run-attackers.sh` will call into Playwright if attackers are enabled; if you need Playwright browsers installed, run `python -m playwright install chromium`.
 - Logs are written to `logs/` by default — check `logs/backend.log`, `logs/model_service.log` and `logs/attackers/*.log` for diagnostics.
+
+---
+
+## Local Development Setup
+
+1. Clone the repo
+
+```powershell
+git clone https://github.com/AjinkyaTaranekar/CS7NS1-Anti-AI-CAPTCHA.git
+cd CS7NS1-Anti-AI-CAPTCHA
+```
+
+2. Create & activate virtual environment
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1  # Windows PowerShell
+# or for cmd: venv\Scripts\activate
+# or linux / macOS: source venv/bin/activate
+```
+
+3. Install backend dependencies
+
+```powershell
+pip install -r captcha-system/backend-service-requirements.txt
+```
+
+Install the OCR/model microservice dependencies (separate environment if preferred):
+
+```powershell
+pip install -r captcha-system/model-service-requirements.txt
+```
+
+For the attacker suite, install:
+
+```powershell
+pip install -r attackers/requirements.txt
+# Playwright requires an extra setup step to install browsers
+python -m playwright install chromium
+```
+
+NOTE: If you are deploying on resource-constrained Pi hardware, use `captcha-system/backend-service-rasp-requirements.txt` for a trimmed set of compatible versions.
+
+---
+
+## Running the Services
+
+1. Start the OCR/Model Microservice (optional but recommended if you want to use the OCR endpoint):
+
+```powershell
+cd captcha-system
+python model_service.py
+```
+
+1.1 Optionally, connect the microservice with NGROK for external access:
+
+```powershell
+ngrok http 8001
+```
+
+1.2 Substitute the public URL in `captcha-system/config/constants.py` under `MODEL_SERVICE_URL`.
+
+2. Start the main backend service (serves `index.html` and REST APIs):
+
+```powershell
+# From captcha-system folder
+python main.py
+```
+
+3. Visit the frontend at `http://localhost:5174`. The web page (`index.html`) calls the backend endpoints: `/api/captcha/challenge` and `/api/signup`.
 
 ---
 
