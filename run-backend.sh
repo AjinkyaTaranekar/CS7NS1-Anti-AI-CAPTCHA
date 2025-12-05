@@ -54,6 +54,15 @@ else
   echo "Using existing venv: $VENV_DIR"
 fi
 
+# Activate the virtual environment for subsequent commands
+if [ -f "$VENV_DIR/bin/activate" ]; then
+  # Unix-like systems
+  source "$VENV_DIR/bin/activate"
+elif [ -f "$VENV_DIR/Scripts/activate" ]; then
+  # Windows systems (Git Bash, etc.)
+  source "$VENV_DIR/Scripts/activate"
+fi
+
 echo -e "\n\033[1;34m🔧 3) Basic pip check (using the chosen python)\033[0m"
 if ! "$PY_CMD" -m pip --version >/dev/null 2>&1; then
   echo "ERROR: pip appears unavailable for $PY_CMD; please ensure pip is installed or use ensurepip: $PY_CMD -m ensurepip";
