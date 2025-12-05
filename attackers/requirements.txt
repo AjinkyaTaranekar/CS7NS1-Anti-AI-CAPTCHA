@@ -2,6 +2,12 @@ playwright==1.48.0
 litellm==1.42.2
 matplotlib
 tensorflow[and-cuda]
+easyocr
 
 ultralytics
 opencv-python-headless
+numpy
+pillow
+pydantic
+requests
+tqdm
