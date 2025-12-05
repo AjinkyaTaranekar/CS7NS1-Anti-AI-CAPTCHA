@@ -205,7 +205,12 @@ python model_service.py
 ngrok http 8001
 ```
 
-1.2 Substitute the public URL in `captcha-system/config/constants.py` under `MODEL_SERVICE_URL`.
+1.2 Add the public URL in `MODEL_SERVICE_URL` environment variable before starting the backend:
+
+```powershell
+$env:MODEL_SERVICE_URL="https://<random-id>.ngrok-free.dev" #Windows PowerShell
+export MODEL_SERVICE_URL="https://<random-id>.ngrok-free.dev" #Linux / macOS
+```
 
 2. Start the main backend service (serves `index.html` and REST APIs):
 
@@ -324,21 +329,70 @@ To deploy the CAPTCHA system on a Raspberry Pi, follow these additional steps:
 
 To access the CAPTCHA system running on your Raspberry Pi from your local machine, you can set up port forwarding using SSH. Here’s how to do it:
 
-1. Create an SSH tunnel from your local machine to the Jump Server:
+1. Ensure you have SSH access to both the Jump Server (`macneill.scss.tcd.ie`) and your Raspberry Pi (`rasp-015.berry.scss.tcd.ie`).
+2. Open a terminal on your local machine.
+3. Run the model service on your machine since the Raspberry Pi won't have enough resources and doesn't support GPU acceleration:
+
+   ```bash
+   cd captcha-system
+   python model_service.py
+   ```
+
+4. In another terminal, set up the ngrok tunnel to expose the model service:
+
+   ```bash
+   ngrok http 8001
+   ```
+
+   Note the public URL provided by ngrok (e.g., `https://<random-id>.ngrok-free.dev`).
+
+5. Now in another terminal, create an SSH tunnel from your local machine to the Jump Server:
 
    ```bash
    ssh -L 5174:localhost:5174 <username>@macneill.scss.tcd.ie
    ```
 
-2. After entering your password, the tunnel will be established. Now, create another SSH tunnel from the Jump Server to your Raspberry Pi:
+6. After entering your password, the tunnel will be established. Now, create another SSH tunnel from the Jump Server to your Raspberry Pi:
 
    ```bash
    ssh -L 5174:0.0.0.0:5174 <username>@rasp-015.berry.scss.tcd.ie
    ```
 
-3. After entering your password, the second tunnel will be established. Now run the CAPTCHA server on your Raspberry Pi if it is not already running.
-4 Use `captcha-system/backend-service-rasp-requirements.txt` to install matching dependency versions for a limited environment.
-5 Run services with `python main.py` and `python model_service.py` for simplicity. If resources are constrained, you can avoid starting the separate OCR microservice and rely on EasyOCR in-process for smaller deployments (but this may increase memory usage).
+7. After entering your password, the second tunnel will be established. 
+8. Git clone the repository on your Raspberry Pi if you haven't already:
+
+   ```bash
+   git clone https://github.com/AjinkyaTaranekar/CS7NS1-Anti-AI-CAPTCHA.git
+   cd CS7NS1-Anti-AI-CAPTCHA
+   ```
+
+9. Create and activate a virtual environment on your Raspberry Pi:
+
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+10. Install the backend dependencies using the Raspberry Pi specific requirements file:
+
+   ```bash
+   pip install -r captcha-system/backend-service-rasp-requirements.txt
+   ```
+
+11. Update the `MODEL_SERVICE_URL` in env to point to the ngrok URL you obtained earlier:
+
+   ```bash
+   export MODEL_SERVICE_URL="https://<random-id>.ngrok-free.dev"
+   ```
+
+12. Start the backend service on your Raspberry Pi:
+
+   ```bash
+   cd captcha-system
+   python main.py
+   ```
+
+13. Now you can access the CAPTCHA system from your local machine by navigating to `http://localhost:5174` in your web browser.
 
 ---
 
