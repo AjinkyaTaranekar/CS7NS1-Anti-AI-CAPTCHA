@@ -169,6 +169,59 @@ powershell -Command "uvicorn main:app --host 0.0.0.0 --port 5174 --reload"
 
 ---
 
+## Helper scripts (convenience)
+
+Two convenience Bash helper scripts are included to make local development easier. Both scripts live at the repository root and are intended to be run from a Bash environment (Linux/macOS/WSL/Git Bash). On Windows PowerShell you can run them via `bash run-backend.sh` / `bash run-attackers.sh` if you have WSL or Git Bash installed.
+
+- `run-backend.sh` — boots only the services (backend and OCR/model microservice) and performs setup checks:
+  - Creates a `venv` (if missing) and uses it for run-time commands
+  - Installs backend and model microservice dependencies from `captcha-system/backend-service-requirements.txt` and `captcha-system/model-service-requirements.txt`
+  - Verifies Python and pip are available
+  - Checks the default ports (Model=8001, Backend=5174) and warns if in use
+  - Launches the model microservice (`captcha-system/model_service.py`) and backend (`captcha-system/main.py`) in the background
+  - Writes logs to `logs/model_service.log` and `logs/backend.log`
+  - Can be stopped gracefully with Ctrl+C (SIGINT) and traps signals to stop processes
+
+   Usage examples:
+
+```bash
+# From repo root (Unix / Git Bash / WSL)
+chmod +x run-backend.sh
+./run-backend.sh
+
+# On Windows PowerShell (if WSL/Git Bash is installed)
+bash run-backend.sh
+```
+
+- `run-attackers.sh` — helper script that runs the backend/model services (as above) and then launches the attacker scripts sequentially:
+  - Performs the same venv & dependency installation as `run-backend.sh` (installs `attackers/requirements.txt` if present)
+  - Verifies `API_KEY` and `LLM_MODEL` environment variables are set (required for attacker scripts that call external LLMs or APIs)
+  - Warns about missing `GEMINI_API_KEY` if present; `attacker_1.py` contains a hard-coded key in its `__main__` block by default
+  - Starts the model service and backend microservices in the background
+  - Runs the attacker scripts in `attackers/` sequentially (default: `attacker_1.py`..`attacker_4.py`)
+  - Stores attacker logs under `logs/attackers/*.log`
+  - Helpful if you want to run a full test harness or run simulated attacks against a locally running server
+
+   Usage examples:
+
+```bash
+# From repo root (Unix / Git Bash / WSL)
+chmod +x run-attackers.sh
+./run-attackers.sh
+
+# On Windows PowerShell (if WSL/Git Bash is installed)
+bash run-attackers.sh
+```
+
+**Notes & security:**
+
+- Both scripts are Bash scripts and call `pip install -r <requirements>` automatically — they will install packages into the `venv`. Be aware that running them performs network downloads and package installation.
+- The attacker script requires environment variables `API_KEY` and `LLM_MODEL` to be set; if they are missing the script warns and exits. You can set them in the current shell or create `attackers/.env` with the variables.
+- `run-attackers.sh` will call into Playwright if attackers are enabled; if you need Playwright browsers installed, run `python -m playwright install chromium`.
+- Logs are written to `logs/` by default — check `logs/backend.log`, `logs/model_service.log` and `logs/attackers/*.log` for diagnostics.
+
+---
+
 ## Endpoints (Quick Reference)
 
 - GET / — Serves `index.html` (main SPA)
