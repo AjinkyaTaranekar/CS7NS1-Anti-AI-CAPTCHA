@@ -168,6 +168,10 @@ ATTACKER_SCRIPTS=(
   "$ATTACKERS_DIR/attacker_4.py"
 )
 
+# Install playwright browsers
+echo -e "\n\033[1;34m🔧 7) Installing Playwright browsers (if not already installed)\033[0m"
+"$PY_CMD" -m playwright install chromium
+
 echo -e "\n\033[1;34m▶️  Running attackers sequentially (logs: $LOG_DIR/attackers/*.log)\033[0m"
 mkdir -p "$LOG_DIR/attackers"
 # Verify required environment variables for some attackers
