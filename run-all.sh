@@ -29,18 +29,6 @@ fi
 echo -e "\033[1;34m🔧 Repository root:\033[0m $REPO_ROOT"
 
 echo -e "\n\033[1;34m🔧 1) Check Python is available\033[0m"
-if ! command -v python >/dev/null 2>&1; then
-  echo "ERROR: python not found on PATH. Install Python 3.8+ and try again."
-  exit 1
-fi
-
-echo -e "\n\033[1;34m🔧 2) Create venv if missing\033[0m"
-if [ ! -d "$VENV_DIR" ]; then
-  python -m venv "$VENV_DIR"
-  echo "Created venv: $VENV_DIR"
-else
-  echo "Using existing venv: $VENV_DIR"
-fi
 
 # Prefer using the venv python when available; otherwise use a command helper (python3/python)
 if [ -f "$VENV_DIR/bin/python" ]; then
@@ -56,6 +44,15 @@ else
   exit 1
 fi
 echo -e "\033[1;32m✅ Using Python command:\033[0m $PY_CMD"
+
+
+echo -e "\n\033[1;34m🔧 2) Create venv if missing\033[0m"
+if [ ! -d "$VENV_DIR" ]; then
+  $PY_CMD -m venv "$VENV_DIR"
+  echo "Created venv: $VENV_DIR"
+else
+  echo "Using existing venv: $VENV_DIR"
+fi
 
 echo -e "\n\033[1;34m🔧 3) Basic pip check (using the chosen python)\033[0m"
 if ! "$PY_CMD" -m pip --version >/dev/null 2>&1; then
