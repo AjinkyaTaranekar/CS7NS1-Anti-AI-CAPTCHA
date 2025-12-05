@@ -1,3 +1,4 @@
+# Developed by Marta
 #!/usr/bin/env python3
 import os
 import random

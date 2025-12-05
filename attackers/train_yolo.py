@@ -1,3 +1,4 @@
+# Developed by Marta
 from ultralytics import YOLO
 
 # Carica un modello pre-addestrato (nano = più veloce)

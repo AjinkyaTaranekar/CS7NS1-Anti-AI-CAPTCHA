@@ -1,3 +1,5 @@
+# Developed by: Ajinkya
+
 #!/usr/bin/env python3
 """Camouflage CAPTCHA generator with visual obfuscation techniques.
 

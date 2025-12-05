@@ -1,3 +1,5 @@
+# Coded by: Vishesh
+
 """
 Standalone OCR microservice using EasyOCR.
 

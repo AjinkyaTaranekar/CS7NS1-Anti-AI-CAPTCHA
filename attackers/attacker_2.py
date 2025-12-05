@@ -1,3 +1,5 @@
+# Developed by Marta, Playwright addition by Ajinkya
+
 import argparse
 import asyncio
 import base64

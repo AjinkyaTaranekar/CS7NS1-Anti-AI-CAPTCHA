@@ -1,3 +1,4 @@
+# Optimized version of generate_dataset.py using multiprocessing by Marta
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """

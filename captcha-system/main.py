@@ -1,3 +1,5 @@
+# Coded by: Ajinkya
+
 """FastAPI application for CAPTCHA-protected user signup.
 
 Provides endpoints for generating CAPTCHA challenges and validating them during signup.
@@ -1397,6 +1399,7 @@ def verify_captcha_movement(events: list, expected_code: str, trace_id: Optional
     
     human_probs = []
 
+    # Contributed by: Vishesh
     try:
         
         kin_vectors = np.array(kin_vectors)
@@ -1965,6 +1968,7 @@ async def signup(signup_request: SignupRequest, request: Request):
     expected_normalized = "".join(expected_code.split()).upper()
     recognized_str = None
     
+    # Contributed by: Vishesh
     if not signup_request.canvasImage:
         tlog.warning("No canvasImage provided; skipping OCR check")
     else:
